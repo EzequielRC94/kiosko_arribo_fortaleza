@@ -5,14 +5,14 @@ import pandas as pd
 def analizar_archivo_sap():
     print(">>> 🚀 INICIANDO MODO RAYOS X PARA SAP/PANDAS <<<\n")
 
+    
+
     # --- 1. BUSCAR EL ARCHIVO ---
     user_profile = os.path.expanduser("~")
-    ruta_carpeta = os.path.join(user_profile, "Elementia S. A", "autoarribo", "zsdmx389")
-    
-    if not os.path.exists(ruta_carpeta):
-        ruta_carpeta = os.path.join(user_profile, "Documentos", "autoarribo", "zsdmx389")
+    ruta_carpeta = os.path.join(user_profile, "Elementia S. A", "Cementos Tula Embarques - Documentos", "kiosko", "2026", "zsdmx389", "pendientes")
+    print(f"📁 Analizando: {ruta_carpeta}")
+    archivos = glob.glob(os.path.join(ruta_carpeta, "ZSDMX389_pendientes_*.csv"))
 
-    archivos = glob.glob(os.path.join(ruta_carpeta, "ZSDMX389_*.csv"))
     if not archivos:
         print("❌ No se encontraron archivos de contingencia.")
         return
@@ -43,7 +43,7 @@ def analizar_archivo_sap():
     # --- 3. LECTURA CON PANDAS ---
     try:
         # header=None fuerza a Pandas a leer TODO, desde la línea 0, sin asumir títulos
-        df = pd.read_csv(archivo_reciente, sep='\t', header=None, encoding='latin1', dtype=str)
+        df = pd.read_csv(archivo_reciente, sep='\t', skiprows=3, encoding='latin1', dtype=str)
         
         # Iteramos las primeras 10 filas de Pandas
         for index, row in df.head(10).iterrows():

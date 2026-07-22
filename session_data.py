@@ -39,8 +39,11 @@ class SessionData:
         self.id_movimiento: str = ""            #Id de movmiento se genera al dar "nuevo arribo"
         self.ticket_id: str = ""                # Se genera con la hora del Checklist
         self.inicio_arribo = datetime.datetime.now() # Hora en que pulsó "Nuevo Arribo"
-        self.fin_arribo = None            # Se llena al Finalizar o Cancelar
-        self.estatus_arribo_mensaje: str = ""  # "Exito", "Cancelado por usuario", "Error SAP..."
+        self.fin_arribo = None                  # Se llena al Finalizar o Cancelar
+        self.estatus_arribo_mensaje: str = ""   # "Exito", "Cancelado por usuario", "Error SAP..."
+        self.planta_gui_nombre: str = ""
+        self.planta_gui_codigos: list = []
+        self.ruta_base_drive: str
 
         # Variables de compatibilidad (para mostrar Log resumen)
         self.estatus_arribo_ultimo_paso: str = "Inicio"  # Rastro del operador (V0, V1, V2...)
@@ -115,10 +118,7 @@ class SessionData:
         # --- Datos de remisión ---
         self.transporte_sap = datos_sap.get("transporte", self.transporte_sap)
         self.clase_entrega = datos_sap.get("clase_entrega", self.clase_entrega)
-        self.clase_expedicion_sap = datos_sap.get(
-            "clase_expedicion",
-            self.clase_expedicion_sap
-        )
+        self.clase_expedicion_sap = datos_sap.get("clase_expedicion", self.clase_expedicion_sap)
         self.fch_cita_carga = datos_sap.get("fch_cita_carga", self.fch_cita_carga)
 
         # --- Tipo unidad CloudFort ---

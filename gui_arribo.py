@@ -695,11 +695,17 @@ class AppWindow(QMainWindow):
         # ====================================================================
         # 💻 KEEP-ALIVE WINDOWS: Evitamos que el Kiosko entre en reposo
         evitar_bloqueo_windows()
-        self.sap_manager.iniciar_keep_alive(intervalo_minutos=5)
+        self.sap_manager.iniciar_keep_alive(intervalo_minutos=6)
         self.hay_internet = True  # Asumimos que inicia con conexión
         self.timer_internet = QTimer(self)
         self.timer_internet.timeout.connect(self._ping_internet)
         self.timer_internet.start(60000) # Revisa cada 60 segundos (60000 ms)
+
+        # --- TEMPORIZADOR PARA ROBOT DESCARGA ZSDMX389 ---
+        self.timer_robot_sap = QTimer(self)
+        self.timer_robot_sap.timeout.connect(self._ejecutar_robot_zsdmx)
+        # 20 minutos = 21 * 60 * 1000 = 1,260,000 milisegundos
+        self.timer_robot_sap.start(1260000)
         
 
         # Conexión SAP Keep-Alive SAP 
@@ -761,6 +767,22 @@ class AppWindow(QMainWindow):
         self.v4.regresar_inicio_signal.connect(self.navegar_a_v0)
         
         self.stacked_widget.setCurrentIndex(0) # Iniciar en la Ventana 0
+
+    def _ejecutar_robot_zsdmx(self):
+        """
+        Función disparada cada 20 minutos. Lanza el robot pasando la ruta global
+        para mantener actualizada la contingencia local (Plan C).
+        """
+        if self.hay_internet and self.sap_manager.validar_conexion():
+            print("⏳ [ROBOT] Iniciando actualización programada de ZSDMX389...")
+            try:
+                # Le pasamos la ruta dinámica que configuramos al arrancar
+                self.sap_manager.zsdmx389_robot(self.session_data.ruta_base_drive)
+            except Exception as e:
+                print(f"⚠️ Error en ejecución automática del robot ZSDMX389: {e}")
+        else:
+            print("⚠️ [ROBOT] Descarga de contingencia omitida (Sin internet o sin SAP).")
+
 
     # --- Métodos de Navegación ---
 
@@ -873,72 +895,103 @@ class AppWindow(QMainWindow):
             clase_entrega = remisiones[0].get("clase_entrega", "")
 
             # ================================================================
-            # PASO C: CREAR FOLIO BÁSCULA EN SAP (ZSDMX...)
+            # PASO C y D: BIFURCACIÓN DE ORÍGENES DE DATOS
             # ================================================================
-            self.session_data.registrar_paso("SAP: Inicio Kiosko", "Registrando en Kiosko")
-            self.v4.set_estado("Creando folio de báscula en SAP...", "blue", "Ejecutando Kiosko", mostrar_boton=False)
-            QApplication.processEvents()
+            origen = self.session_data.origen_datos
 
-            resultado_kiosko = self.sap_manager.crear_folio_bascula(
-                remisiones=remisiones,
-                centro_expedicion=centro,
-                tipo_remision=clase_entrega, 
-                operador=operador,
-                placas=placas,
-                modalidad=modalidad
-            )
-            self.session_data.registrar_paso("SAP: Folio Creado", f"Kiosko: {resultado_kiosko}")
+            if origen == "A: Web Service":
+                # ----------------------------------------------------------------
+                # MODO A: WEB SERVICE (CAMA PUESTA PARA EL FUTURO)
+                # ----------------------------------------------------------------
+                self.session_data.registrar_paso("API CF: Inicio Kiosko", "Registrando en Kiosko vía Web Service")
+                self.v4.set_estado("Creando folio de báscula en CloudFort...", "blue", "Ejecutando API", mostrar_boton=False)
+                QApplication.processEvents()
 
-            # ⏳ PREVENCIÓN DEL ERROR COM (-2147483638): Dormimos el script medio segundo
-            time.sleep(0.5)
+                # TODO: Implementar en manager_cloudfort.py
+                # resultado_kiosko = self.cloudfort_manager.crear_folio_bascula(...)
+                # self.session_data.registrar_paso("API CF: Folio Creado", f"Kiosko: {resultado_kiosko}")
+                
+                self.v4.set_estado("Creando transporte en CloudFort...", "blue", "Ejecutando API", mostrar_boton=False)
+                QApplication.processEvents()
+                
+                # TODO: Implementar en manager_cloudfort.py
+                # no_transporte = self.cloudfort_manager.crear_transporte(...)
+                # self.session_data.transporte_sap = str(no_transporte).strip()
+                # self.session_data.registrar_paso("API CF: Transporte Creado", f"Transporte: {self.session_data.transporte_sap}")
 
-            # ================================================================
-            # PASO D: CREAR TRANSPORTE EN SAP (VT01N)
-            # ================================================================
-            self.session_data.registrar_paso("SAP: Inicio Transporte", "Creando en VT01N")
-            self.v4.set_estado("Creando transporte en SAP (VT01N)...", "blue", "Ejecutando VT01N", mostrar_boton=False)
-            QApplication.processEvents()
+                # CIERRE EXITOSO (SIMULADO HASTA TENER WS)
+                self.session_data.estatus_arribo_mensaje = "Proceso Web Service exitoso"
+                self.session_data.estatus_arribo_ultimo_paso = "OK"
+                mensaje_usuario = f"¡ARRIBO EXITOSO (WS)!\n Turno: {self.session_data.ticket_id}"
+                color_final = "green"
 
-            no_transporte = self.sap_manager.crear_transporte(
-                remisiones=remisiones,
-                centro_expedicion=centro,
-                modalidad=modalidad,
-                operador=operador,
-                placas=placas,
-                clase_expedicion_f=clase_exp_final, # Usamos la variable infalible ya limpia
-                fecha_checklist= fch_checklist
-            )
+            elif origen == "C: Contingencia":
+                # ----------------------------------------------------------------
+                # MODO C: CONTINGENCIA LOCAL
+                # ----------------------------------------------------------------
+                self.session_data.registrar_paso("MODO CONTINGENCIA", "Omitiendo folio y transporte en SAP.")
+                self.v4.set_estado("Guardando arribo localmente (Modo Contingencia)...", "#D4A017", "Guardando Local", mostrar_boton=False)
+                QApplication.processEvents()
+                
+                # CIERRE EXITOSO EN CONTINGENCIA
+                self.session_data.estatus_arribo_mensaje = "Guardado Localmente (Contingencia)"
+                
+                # IMPORTANTE: Mantenemos "OK" para que el bloque 'finally' dispare el tablero y los correos
+                self.session_data.estatus_arribo_ultimo_paso = "OK" 
+                
+                mensaje_usuario = f"¡ARRIBO EN CONTINGENCIA!\n Turno: {self.session_data.ticket_id}\n(Folio SAP Pendiente)"
+                color_final = "#D4A017" # Dorado/Naranja
+                
+                # Pequeña pausa visual para que el operador lea el estado
+                time.sleep(1) 
 
-            # Validar y guardar transporte real
-            if no_transporte and str(no_transporte).strip().startswith("48"):
-                self.session_data.transporte_sap = str(no_transporte).strip()
-                self.session_data.registrar_paso("SAP: Transporte Creado", f"Transporte: {self.session_data.transporte_sap}")
             else:
-                raise Exception(f"Transporte inválido generado por SAP: {no_transporte}")
+                # ----------------------------------------------------------------
+                # MODO B: ROBOT SAP (DEFAULT / ACTUAL)
+                # ----------------------------------------------------------------
+                self.session_data.registrar_paso("SAP: Inicio Kiosko", "Registrando en Kiosko")
+                self.v4.set_estado("Creando folio de báscula en SAP...", "blue", "Ejecutando Kiosko", mostrar_boton=False)
+                QApplication.processEvents()
 
-            # ----------------------------------------------------------------
-            # CIERRE EXITOSO
-            # ----------------------------------------------------------------
-            self.session_data.estatus_arribo_mensaje = "Proceso SAP exitoso"
-            self.session_data.estatus_arribo_ultimo_paso = "OK"
-            mensaje_usuario = f"¡ARRIBO EXITOSO!\n Turno: {self.session_data.ticket_id}"
-            color_final = "green"
+                resultado_kiosko = self.sap_manager.crear_folio_bascula(
+                    remisiones=remisiones,
+                    centro_expedicion=centro,
+                    tipo_remision=clase_entrega, 
+                    operador=operador,
+                    placas=placas,
+                    modalidad=modalidad
+                )
+                self.session_data.registrar_paso("SAP: Folio Creado", f"Kiosko: {resultado_kiosko}")
 
-        except SAPError as e_sap:
-            self.session_data.registrar_paso("ERROR SAP", str(e_sap))
-            self.session_data.estatus_arribo_mensaje = str(e_sap)
-            self.session_data.estatus_arribo_ultimo_paso = "ERROR SAP"
-            mensaje_usuario = f"ERROR EN SAP:\n{e_sap}"
-            color_final = "red"
-            print(f"❌ Error de negocio en SAP: {e_sap}")
+                # ⏳ PREVENCIÓN DEL ERROR COM (-2147483638): Dormimos el script medio segundo
+                time.sleep(0.5)
 
-        except Exception as e:
-            self.session_data.registrar_paso("ERROR CRÍTICO", str(e))
-            self.session_data.estatus_arribo_mensaje = str(e)
-            self.session_data.estatus_arribo_ultimo_paso = "ERROR CRÍTICO"
-            mensaje_usuario = f"FALLA DEL SISTEMA:\n{e}"
-            color_final = "red"
-            print(f"❌ Error crítico en automatización: {e}")
+                self.session_data.registrar_paso("SAP: Inicio Transporte", "Creando en VT01N")
+                self.v4.set_estado("Creando transporte en SAP (VT01N)...", "blue", "Ejecutando VT01N", mostrar_boton=False)
+                QApplication.processEvents()
+
+                no_transporte = self.sap_manager.crear_transporte(
+                    remisiones=remisiones,
+                    centro_expedicion=centro,
+                    modalidad=modalidad,
+                    operador=operador,
+                    placas=placas,
+                    clase_expedicion_f=clase_exp_final, 
+                    fecha_checklist= fch_checklist
+                )
+
+                # Validar y guardar transporte real
+                if no_transporte and str(no_transporte).strip().startswith("48"):
+                    self.session_data.transporte_sap = str(no_transporte).strip()
+                    self.session_data.registrar_paso("SAP: Transporte Creado", f"Transporte: {self.session_data.transporte_sap}")
+                else:
+                    raise Exception(f"Transporte inválido generado por SAP: {no_transporte}")
+
+                # CIERRE EXITOSO NORMAL
+                self.session_data.estatus_arribo_mensaje = "Proceso SAP exitoso"
+                self.session_data.estatus_arribo_ultimo_paso = "OK"
+                mensaje_usuario = f"¡ARRIBO EXITOSO!\n Turno: {self.session_data.ticket_id}"
+                color_final = "green"
 
         finally:
             # ================================================================
@@ -1168,39 +1221,34 @@ class AppWindow(QMainWindow):
                 import pandas as pd
 
                 # --- 1. BUSCAR EL ARCHIVO MÁS RECIENTE ---
-                user_profile = os.path.expanduser("~")
-                ruta_carpeta = os.path.join(user_profile, "Elementia S. A", "autoarribo", "zsdmx389")
+                ruta_carpeta = os.path.join(self.session_data.ruta_base_drive, "zsdmx389", "pendientes")
+                archivos = glob.glob(os.path.join(ruta_carpeta, "ZSDMX389_pendientes_*.csv"))
                 
-                if not os.path.exists(ruta_carpeta):
-                    ruta_carpeta = os.path.join(user_profile, "Documentos", "autoarribo", "zsdmx389")
-
-                archivos = glob.glob(os.path.join(ruta_carpeta, "ZSDMX389_*.csv"))
                 if not archivos:
-                    raise Exception("No hay archivos de contingencia disponibles en la carpeta.")
+                    raise Exception(f"No hay archivos de contingencia disponibles en la carpeta: {ruta_carpeta}")
 
                 archivo_reciente = max(archivos, key=os.path.getmtime)
 
                 # --- 2. LEER Y LIMPIAR EL DATAFRAME ---
                 try:
-                    # LA CLAVE: sep=',' (porque vimos que SAP usa comas) y skiprows=3
-                    df = pd.read_csv(archivo_reciente, sep=',', skiprows=3, encoding='latin1', dtype=str)
+                    # MAGIA 1: na_filter=False evita que Pandas escriba la palabra "nan"
+                    df = pd.read_csv(archivo_reciente, sep='\t', skiprows=3, encoding='latin1', dtype=str, na_filter=False)
                 except Exception as e:
-                    raise Exception(f"Error al leer el archivo CSV: {e}")
+                    raise Exception(f"Error al leer el archivo CSV de contingencia: {e}")
 
                 # Limpiar nombres de columnas (SAP deja espacios a veces)
                 df.columns = df.columns.str.strip()
-                df = df.fillna("")
 
-                # La Fila 4 del Excel original es de comas vacías, la borramos filtrando Entregas vacías
+                # La Fila 4 del Excel original es vacía, la borramos filtrando Entregas vacías
                 df = df[df['Entrega'].str.strip() != ""]
 
                 # --- 3. TRATAMIENTO DE DUPLICADOS ---
                 # Quitamos espacios y ceros decimales (.0)
                 df['Entrega'] = df['Entrega'].str.replace(r'\.0$', '', regex=True).str.strip()
                 df['Posición E'] = df['Posición E'].str.replace(r'\.0$', '', regex=True).str.strip()
-                
-                # Eliminamos duplicados evaluando Remisión + Posición
-                df = df.drop_duplicates(subset=['Entrega', 'Posición E'], keep='first')
+
+                # MAGIA 2: keep='last' asegura que nos quedemos con la fila que tiene los datos de cabecera completos
+                df = df.drop_duplicates(subset=['Entrega', 'Posición E'], keep='last')
 
                 # --- 4. BUSCAR LA REMISIÓN ---
                 rem_limpia = str(rem).strip()
@@ -1234,8 +1282,8 @@ class AppWindow(QMainWindow):
                 return {
                     "remision": rem_limpia,
                     "cliente": str(row_cabecera.get("Nombre Destinatario", "")).strip(),
-                    "operador": str(row_cabecera.get("Texto Cabecera", "")).strip(), 
-                    "placa": "", # El operador la confirmará en el kiosko
+                    "operador": str(row_cabecera.get("Número de carta de p", "")).strip(), 
+                    "placa": str(row_cabecera.get("Número de", "")).strip(),
                     "poblacion": str(row_cabecera.get("Población", "")).strip(),
                     "ruta": str(row_cabecera.get("Ruta", "")).strip(),
                     "modalidad": str(row_cabecera.get("Pto Descar", "")).strip().upper(),
@@ -1273,6 +1321,7 @@ class AppWindow(QMainWindow):
                         self.session_data.registrar_paso("[SAP] Inicio Robot", "Buscando en SAP")
                         datos_sap = _metodo_b_robot(remision) 
                         origen_datos = "B: Robot SAP"
+
                     
                     except SAPError as e_sap:
                         # ERROR DE NEGOCIO (Ej. "La entrega ya ha sido procesada")
@@ -1475,8 +1524,8 @@ class AppWindow(QMainWindow):
 
 if __name__ == "__main__":
     import ctypes
-    # ... (código para forzar  ícono) ...
-
+    from datetime import datetime
+    
     app = QApplication(sys.argv)
     
     # 1. Mostrar el selector de plantas
@@ -1490,9 +1539,36 @@ if __name__ == "__main__":
         ventana.session_data.planta_gui_nombre = dialogo.nombre_planta
         ventana.session_data.planta_gui_codigos = dialogo.codigos_planta
         
+        # =================================================================
+        # 2.1 CALCULAR Y GUARDAR LA RUTA BASE DRIVE
+        # =================================================================
+        user_profile = os.path.expanduser("~")
+        
+        carpetas_plantas = {
+            "Planta Tula": "Cementos Tula Embarques - Documentos",
+            "Planta Palmar": "Cementos Palmar Embarques - Documentos",
+            "Planta Vito": "Cementos Vito Embarques - Documentos",
+            "Planta Progreso": "Cementos Progreso Embarques - Documentos",
+            "CEDIS GDL": "CEDIS GDL Embarques - Documentos" 
+        }
+        
+        carpeta_planta = carpetas_plantas.get(dialogo.nombre_planta, "Documentos Kiosko")
+        anio_actual = datetime.now().strftime("%Y")
+        
+        # Construimos la ruta hasta el año en curso
+        ruta_calculada = os.path.join(
+            user_profile, 
+            "Elementia S. A", 
+            carpeta_planta, 
+            "kiosko", 
+            anio_actual
+        )
+        
+        # La asignamos a la variable que creamos en SessionData
         # 3. ENRUTAMOS TUS ARCHIVOS A LA CARPETA COMPARTIDA CORRECTA
-        ventana.logger.set_planta(dialogo.nombre_planta)
-        ventana.arribos_manager.set_planta(dialogo.nombre_planta)
+        ventana.session_data.ruta_base_drive = ruta_calculada
+        ventana.arribos_manager.configurar_ruta(ventana.session_data.ruta_base_drive)
+        ventana.logger.configurar_ruta(ventana.session_data.ruta_base_drive)
         
         print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre}")
         ventana.show()

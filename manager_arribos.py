@@ -16,37 +16,18 @@ class ArribosManager:
         self.ruta_completa = ""
         # Quitamos la inicialización aquí, ahora dependerá de set_planta()
 
-    def set_planta(self, planta_nombre: str):
+    def configurar_ruta(self, ruta_base_drive: str):
         """
-        Configura la ruta real operativa basándose en la planta seleccionada por el operador.
-        Ej: C:\\Users\\...\\Elementia S. A\\Cementos Tula Embarques - Documentos\\kiosko\\2026\\arribos
+        Configura la ruta real operativa basándose en la variable global del Kiosko.
+        Agrega automáticamente la subcarpeta 'arribos'.
         """
-        user_profile = os.path.expanduser("~")
+        # 1. Usamos la ruta dinámica heredada de SessionData
+        self.ruta_base = os.path.join(ruta_base_drive, "arribos")
         
-        # Mapeo exacto a los nombres de las carpetas de SharePoint
-        carpetas_plantas = {
-            "Planta Tula": "Cementos Tula Embarques - Documentos",
-            "Planta Palmar": "Cementos Palmar Embarques - Documentos",
-            "Planta Vito": "Cementos Vito Embarques - Documentos",
-            "Planta Progreso": "Cementos Progreso Embarques - Documentos",
-            "CEDIS GDL": "CEDIS GDL Embarques - Documentos" 
-        }
-        
-        carpeta_planta = carpetas_plantas.get(planta_nombre, "Documentos Kiosko")
-        anio_actual = datetime.now().strftime("%Y")
-        
-        # Construimos la ruta final
-        self.ruta_base = os.path.join(
-            user_profile, 
-            "Elementia S. A", 
-            carpeta_planta, 
-            "kiosko", 
-            anio_actual, 
-            "arribos"
-        )
+        # 2. Construimos la ruta exacta al Excel
         self.ruta_completa = os.path.join(self.ruta_base, self.nombre_archivo)
 
-        # Crear directorios y el archivo si no existen
+        # 3. Crear directorios y el archivo si no existen
         if not os.path.exists(self.ruta_base):
             try:
                 os.makedirs(self.ruta_base, exist_ok=True)

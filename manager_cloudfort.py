@@ -33,7 +33,7 @@ class CloudFortManager:
         if "token" not in payload_data:
             payload_data["token"] = self._obtener_token(endpoint)
 
-        print(f"📡 Enviando POST a CloudFort [{endpoint}]: {json.dumps(payload_data)}")
+        print(f"📡 Enviando POST a CloudFort [{endpoint}]")
 
         try:
             response = requests.post(url_completa, json=payload_data, timeout=timeout)

@@ -19,7 +19,7 @@ class DialogoSeleccionPlanta(QDialog):
         layout.setSpacing(20)
         layout.setContentsMargins(50, 50, 50, 50)
 
-        lbl_titulo = QLabel("OPERADOR SELECCIONE UBICACIÓN")
+        lbl_titulo = QLabel("SELECCIONE UBICACIÓN")
         lbl_titulo.setFont(QFont("Arial", 18, QFont.Weight.Bold))
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_titulo)

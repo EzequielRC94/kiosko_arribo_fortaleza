@@ -8,25 +8,13 @@ class LogManager:
     def __init__(self):
         self.ruta_base = ""
 
-    def set_planta(self, planta_nombre: str):
+    # Reemplazamos set_planta por configurar_ruta
+    def configurar_ruta(self, ruta_base_drive: str):
         """
-        Configura la ruta de logs dinámicamente, incluyendo el mes en español.
-        Ej: ...\kiosko\2026\logs\07_julio
+        Configura la ruta de logs dinámicamente usando la ruta global.
+        Agrega la carpeta 'logs' y el mes en español correspondiente.
         """
-        user_profile = os.path.expanduser("~")
-        
-        carpetas_plantas = {
-            "Planta Tula": "Cementos Tula Embarques - Documentos",
-            "Planta Palmar": "Cementos Palmar Embarques - Documentos",
-            "Planta Vito": "Cementos Vito Embarques - Documentos",
-            "Planta Progreso": "Cementos Progreso Embarques - Documentos",
-            "CEDIS GDL": "CEDIS GDL Embarques - Documentos"
-        }
-        
-        carpeta_planta = carpetas_plantas.get(planta_nombre, "Documentos Kiosko")
-        
         now = datetime.now()
-        anio_actual = now.strftime("%Y")
         
         # Diccionario para formatear el mes "07_julio"
         meses_es = {
@@ -36,22 +24,17 @@ class LogManager:
         }
         mes_str = meses_es.get(now.month, f"{now.month:02d}_mes")
 
-        self.ruta_base = os.path.join(
-            user_profile, 
-            "Elementia S. A", 
-            carpeta_planta, 
-            "kiosko", 
-            anio_actual, 
-            "logs", 
-            mes_str
-        )
+        # ruta_base_drive trae: C:\Users\...\kiosko\2026
+        # Le agregamos la estructura final
+        self.ruta_base = os.path.join(ruta_base_drive, "logs", mes_str)
 
         if not os.path.exists(self.ruta_base):
             try:
                 os.makedirs(self.ruta_base, exist_ok=True)
                 print(f"📁 Carpeta de logs creada: {self.ruta_base}")
             except Exception as e:
-                pass
+                print(f"⚠️ Error creando carpeta de logs: {e}")
+                
                 
     def _obtener_ruta_archivo_hoy(self) -> str:
         """Devuelve la ruta completa del Excel de hoy."""

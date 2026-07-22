@@ -116,7 +116,7 @@ class SAPManager:
                     self.emitter.keep_alive_signal.emit ("Conexión con SAP exitosa. Keep-Alive enviado.", 
                         "green"
                         )
-                    print(f"[{time.strftime('%H:%M:%S')}] Keep-Alive enviado a SAP (/n)")
+                    print(f"✅ [{time.strftime('%H:%M:%S')}] Keep-Alive enviado a SAP (/n)")
                 except Exception as e:
                     self.emitter.keep_alive_signal.emit("Falla al enviar Keep-Alive. SAP puede estar ocupado o desconectado.", 
                                                         "orange")
@@ -1155,105 +1155,15 @@ class SAPManager:
                 print(f"⚠️ Conflicto en tipo de Unidad: CloudFort dice {cf_clean}, pero por peso ({peso_total} ton) corresponde {clase_calculada}. Se usará {clase_calculada}.")
 
         return tipo_unidad_final
-    
-    def zsdmx389_remisiones_pendientes(self, path_descarga: str, nom_archivo: str, fch_in: str, fch_fn: str, descargar: bool = True):
-        """
-        Ejecuta la transacción ZSDMX389 (Remisiones Pendientes) de forma genérica.
-        Selecciona layout dinámicamente y exporta como texto con tabulaciones (CSV).
-        """
-        session = self.obtener_sesion()
-        if not session:
-            raise Exception("No hay sesión abierta en SAP para ejecutar ZSDMX389.")
-            
-        try:
-            # --- 1. NAVEGACIÓN Y FILTROS INICIALES ---
-            # Reemplazar la entrada manual por el validador
-            self.acceder_a_transaccion(session, "ZSDMX389") 
-            
-            session.findById("wnd[0]/usr/ctxtPA_VKORG").text = "0152"
-            session.findById("wnd[0]/usr/radPA_ENTRE").select()
-            
-            # --- 2. EXCLUIR TRANSPORTE ESTATUS 'C' ---
-            session.findById("wnd[0]/usr/ctxtSO_TRSTA-LOW").text = ""
-            session.findById("wnd[0]/usr/btn%_SO_TRSTA_%_APP_%-VALU_PUSH").press()
-            session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/ctxtRSCSEL_255-SLOW_I[1,0]").text = "C"
-            session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/btnRSCSEL_255-SOP_I[0,0]").setFocus()
-            session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/btnRSCSEL_255-SOP_I[0,0]").press()
-            session.findById("wnd[2]/usr/cntlOPTION_CONTAINER/shellcont/shell").currentCellRow = 5
-            session.findById("wnd[2]/usr/cntlOPTION_CONTAINER/shellcont/shell").selectedRows = "5"
-            session.findById("wnd[2]/usr/cntlOPTION_CONTAINER/shellcont/shell").doubleClickCurrentCell()
-            session.findById("wnd[1]/tbar[0]/btn[8]").press()
-            
-            # --- 3. EXCLUIR SALIDA DE MERCANCÍA ESTATUS 'C' ---
-            session.findById("wnd[0]/usr/btn%_SO_WBSTK_%_APP_%-VALU_PUSH").press()
-            session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/ctxtRSCSEL_255-SLOW_I[1,0]").text = "C"
-            session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/btnRSCSEL_255-SOP_I[0,0]").setFocus()
-            session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/btnRSCSEL_255-SOP_I[0,0]").press()
-            session.findById("wnd[2]/usr/cntlOPTION_CONTAINER/shellcont/shell").currentCellRow = 5
-            session.findById("wnd[2]/usr/cntlOPTION_CONTAINER/shellcont/shell").selectedRows = "5"
-            session.findById("wnd[2]/usr/cntlOPTION_CONTAINER/shellcont/shell").doubleClickCurrentCell()
-            session.findById("wnd[1]/tbar[0]/btn[8]").press()
-            
-            # --- 4. RANGO DE FECHAS Y EJECUCIÓN ---
-            session.findById("wnd[0]/usr/ctxtSO_LDDAT-LOW").text = fch_in
-            session.findById("wnd[0]/usr/ctxtSO_LDDAT-HIGH").text = fch_fn
-            session.findById("wnd[0]").sendVKey(8) # Ejecutar
-            
-            # --- 5. SELECCIONAR LAYOUT (CICLO FOR EN ALV GRID) ---
-            try:
-                # Botón de Seleccionar Layout
-                session.findById("wnd[0]/tbar[1]/btn[33]").press()
-                
-                # Obtenemos la tabla de layouts
-                shell_layout = session.findById("wnd[1]/usr/ssubD0500_SUBSCREEN:SAPLSLVC_DIALOG:0501/cntlG51_CONTAINER/shellcont/shell")
-                max_filas = shell_layout.RowCount
-                layout_encontrado = False
-                
-                # Buscamos en todas las filas disponibles
-                for i in range(max_filas):
-                    # En las tablas ALV, el nombre técnico del layout está en "VARIANT" y la descripción en "TEXT"
-                    nombre_variante = shell_layout.GetCellValue(i, "VARIANT").strip()
-                    nombre_texto = shell_layout.GetCellValue(i, "TEXT").strip()
-                    
-                    if "/$FZ_PLANEAC" in nombre_variante or "/$FZ_PLANEAC" in nombre_texto:
-                        shell_layout.currentCellRow = i
-                        shell_layout.selectedRows = str(i)
-                        shell_layout.clickCurrentCell()
-                        layout_encontrado = True
-                        print(f"✅ Layout /$FZ_PLANEAC encontrado y aplicado (Fila {i}).")
-                        break
-                        
-                if not layout_encontrado:
-                    print("⚠️ Layout /$FZ_PLANEAC no encontrado. Se exportará con el layout por defecto.")
-                    session.findById("wnd[1]").sendVKey(12) # Cerrar ventana (Cancelar)
-                    
-            except Exception as e:
-                print(f"⚠️ Advertencia: Error seleccionando layout dinámicamente. ({e})")
-                if session.Children.Count > 1:
-                    session.findById("wnd[1]").sendVKey(12) # Cancelar
 
-            # --- 6. EXPORTAR A CSV (TEXTO CON TABULACIONES) ---
-            if descargar:
-                # El atajo VKey(45) abre directamente la exportación de tabla ALV
-                session.findById("wnd[0]").sendVKey(45) 
-                
-                # Seleccionar Texto con Tabulaciones (radSPOPLI-SELFLAG[1,0])
-                session.findById("wnd[1]/usr/subSUBSCREEN_STEPLOOP:SAPLSPO5:0150/sub:SAPLSPO5:0150/radSPOPLI-SELFLAG[1,0]").select()
-                session.findById("wnd[1]/tbar[0]/btn[0]").press() # Enter
-                
-                # Guardar archivo
-                session.findById("wnd[1]/usr/ctxtDY_PATH").text = path_descarga
-                session.findById("wnd[1]/usr/ctxtDY_FILENAME").text = nom_archivo
-                session.findById("wnd[1]/tbar[0]/btn[11]").press() # Reemplazar/Guardar
-                
-        except Exception as e:
-            print(f"❌ Error interno ejecutando ZSDMX389: {e}")
-            raise Exception(f"Falla en ejecución ZSDMX389: {e}")   
+    # ==============================================================================
+    # MOTOR DE DESCARGAS Y ROBOT ORQUESTADOR ZSDMX389
+    # ==============================================================================
 
-    def zsdmx389_generico(self, path_descarga: str, nom_archivo: str, fch_in: str, fch_fn: str, 
-                          org_vta: str = "0152", can_dis: str = "16", 
-                          filtro_transporte: str = "DIF_C", 
-                          descargar: bool = True):
+    def zsdmx389_descargar_archivos(self, path_descarga: str, nom_archivo: str, fch_in: str, fch_fn: str, 
+                                  org_vta: str = "0152", can_dis: str = "16", 
+                                  filtro_transporte: str = "DIF_C", 
+                                  descargar: bool = True):
         """
         Motor genérico para ejecutar la transacción ZSDMX389.
         filtro_transporte acepta: 'DIF_C' (Excluir C) o 'IGUAL_C' (Solo C).
@@ -1268,7 +1178,6 @@ class SAPManager:
             
             session.findById("wnd[0]/usr/ctxtPA_VKORG").text = org_vta
             
-            # Insertamos Canal de Distribución (try-except por si el nombre técnico cambia en tu layout)
             try:
                 session.findById("wnd[0]/usr/ctxtPA_VTWEG").text = can_dis
             except:
@@ -1278,7 +1187,6 @@ class SAPManager:
             
             # --- 2. FILTRO: ESTATUS PLANIF. TRANSPORTE (SO_TRSTA) ---
             if filtro_transporte == "DIF_C":
-                # EXCLUIR 'C' (Pestaña Roja SIVA)
                 session.findById("wnd[0]/usr/ctxtSO_TRSTA-LOW").text = ""
                 session.findById("wnd[0]/usr/btn%_SO_TRSTA_%_APP_%-VALU_PUSH").press()
                 session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/ctxtRSCSEL_255-SLOW_I[1,0]").text = "C"
@@ -1290,12 +1198,10 @@ class SAPManager:
                 session.findById("wnd[1]/tbar[0]/btn[8]").press()
                 
             elif filtro_transporte == "IGUAL_C":
-                # INCLUIR SOLO 'C' (Directo en el campo LOW)
                 session.findById("wnd[0]/usr/ctxtSO_TRSTA-LOW").text = "C"
                 session.findById("wnd[0]/usr/ctxtSO_TRSTA-HIGH").text = ""
 
             # --- 3. FILTRO: ESTATUS SALIDA DE MERCANCÍA (SO_WBSTK) ---
-            # (El diagrama indica que este siempre es DIF C para ambos reportes)
             session.findById("wnd[0]/usr/ctxtSO_WBSTK-LOW").text = ""
             session.findById("wnd[0]/usr/btn%_SO_WBSTK_%_APP_%-VALU_PUSH").press()
             session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/ctxtRSCSEL_255-SLOW_I[1,0]").text = "C"
@@ -1309,51 +1215,77 @@ class SAPManager:
             # --- 4. RANGO DE FECHAS Y EJECUCIÓN ---
             session.findById("wnd[0]/usr/ctxtSO_LDDAT-LOW").text = fch_in
             session.findById("wnd[0]/usr/ctxtSO_LDDAT-HIGH").text = fch_fn
-            session.findById("wnd[0]").sendVKey(8) # Ejecutar
+            session.findById("wnd[0]").sendVKey(8) 
             
-            # --- 5. SELECCIONAR LAYOUT Y EXPORTAR (Sin cambios, se mantiene tu lógica intacta) ---
-            # ... (Aquí va tu código exacto de selección de Layout /$FZ_PLANEAC y exportación VKey(45))
-            
-            # Fragmento resumido para contexto:
+            # --- 5. SELECCIONAR LAYOUT Y EXPORTAR ---
             try:
                 session.findById("wnd[0]/tbar[1]/btn[33]").press()
-                # ... (Búsqueda de layout)
-            except Exception as e:
-                pass
+                shell_layout = session.findById("wnd[1]/usr/ssubD0500_SUBSCREEN:SAPLSLVC_DIALOG:0501/cntlG51_CONTAINER/shellcont/shell")
+                max_filas = shell_layout.RowCount
+                layout_encontrado = False
                 
+                for i in range(max_filas):
+                    nombre_variante = shell_layout.GetCellValue(i, "VARIANT").strip()
+                    nombre_texto = shell_layout.GetCellValue(i, "TEXT").strip()
+                    
+                    if "/$FZ_PLANEAC" in nombre_variante or "/$FZ_PLANEAC" in nombre_texto:
+                        shell_layout.currentCellRow = i
+                        shell_layout.selectedRows = str(i)
+                        shell_layout.clickCurrentCell()
+                        layout_encontrado = True
+                        #print(f"✅ Layout /$FZ_PLANEAC encontrado y aplicado (Fila {i}).")
+                        break
+
+            except Exception as e:
+                print(f"⚠️ Advertencia: Error seleccionando layout dinámicamente. ({e})")
+                if session.Children.Count > 1:
+                    session.findById("wnd[1]").sendVKey(12) 
+                    
+            if not layout_encontrado:
+                print("⚠️ Layout /$FZ_PLANEAC no encontrado. Se exportará con el layout por defecto.")
+                if session.Children.Count > 1:
+                    session.findById("wnd[1]").sendVKey(12) 
+            
+            # --- 6. EXPORTAR A CSV ---
             if descargar:
                 session.findById("wnd[0]").sendVKey(45) 
-                # ... (Guardado de archivo usando path_descarga y nom_archivo)
+                session.findById("wnd[1]/usr/subSUBSCREEN_STEPLOOP:SAPLSPO5:0150/sub:SAPLSPO5:0150/radSPOPLI-SELFLAG[1,0]").select()
+                session.findById("wnd[1]/tbar[0]/btn[0]").press() 
+                
+                session.findById("wnd[1]/usr/ctxtDY_PATH").text = path_descarga
+                session.findById("wnd[1]/usr/ctxtDY_FILENAME").text = nom_archivo
+                session.findById("wnd[1]/tbar[0]/btn[11]").press() 
                 
         except Exception as e:
             print(f"❌ Error interno ejecutando ZSDMX389: {e}")
             raise Exception(f"Falla en ejecución ZSDMX389: {e}")
 
-    def descargar_archivos_zsdmx389(self) -> dict:
+    def zsdmx389_robot(self, ruta_base_drive: str) -> dict:
         """
-        Orquestador que descarga tanto el reporte de 'Pendientes' como el de 'En Proceso'
-        usando el motor genérico. Retorna un diccionario con las rutas.
+        Robot Orquestador que recibe la ruta dinámica, crea las subcarpetas 
+        (pendientes / en_proceso) y lanza las descargas.
         """
         import os
         from datetime import datetime
         
-        # --- RUTAS ---
-        user_profile = os.path.expanduser("~")
-        ruta_base = os.path.join(user_profile, "Elementia S. A", "autoarribo", "zsdmx389")
+        # --- 1. RUTAS DINÁMICAS (PLAN C) ---
+        ruta_zsdmx = os.path.join(ruta_base_drive, "zsdmx389")
+        ruta_pendientes = os.path.join(ruta_zsdmx, "pendientes")
+        ruta_en_proceso = os.path.join(ruta_zsdmx, "en_proceso")
         
-        if not os.path.exists(os.path.dirname(os.path.dirname(ruta_base))):
-            ruta_base = os.path.join(user_profile, "Documentos", "autoarribo", "zsdmx389")
-            
-        if not os.path.exists(ruta_base):
-            os.makedirs(ruta_base)
+        # Validar y crear estructura de carpetas
+        for carpeta in [ruta_pendientes, ruta_en_proceso]:
+            if not os.path.exists(carpeta):
+                try:
+                    os.makedirs(carpeta, exist_ok=True)
+                except Exception as e:
+                    print(f"⚠️ Error creando carpeta {carpeta}: {e}")
             
         fecha_str = datetime.now().strftime("%Y%m%d")
-        
-        # Nombres de archivos diferenciados
         nom_pendientes = f"ZSDMX389_pendientes_{fecha_str}.csv" 
         nom_en_proceso = f"ZSDMX389_en_proceso_{fecha_str}.csv" 
         
-        # --- RANGO DE FECHAS ---
+        # --- 2. RANGO DE FECHAS ---
         anio_actual = datetime.now().year
         fch_in = f"01.01.{anio_actual}"
         fch_fn = f"31.12.{anio_actual}"
@@ -1362,71 +1294,35 @@ class SAPManager:
         rutas_generadas = {}
         
         try:
-            # 1. DESCARGAR PENDIENTES (DIF C)
-            self.zsdmx389_generico(
-                path_descarga=ruta_base, nom_archivo=nom_pendientes, fch_in=fch_in, fch_fn=fch_fn, 
+            # DESCARGAR PENDIENTES ESTATUS (DIF_C) -> Va a la carpeta \pendientes
+            self.zsdmx389_descargar_archivos(
+                path_descarga=ruta_pendientes, 
+                nom_archivo=nom_pendientes, 
+                fch_in=fch_in, 
+                fch_fn=fch_fn, 
                 filtro_transporte="DIF_C"
             )
-            rutas_generadas['pendientes'] = os.path.join(ruta_base, nom_pendientes)
+            rutas_generadas['pendientes'] = os.path.join(ruta_pendientes, nom_pendientes)
             
-            # 2. DESCARGAR EN PROCESO (IGUAL C)
-            self.zsdmx389_generico(
-                path_descarga=ruta_base, nom_archivo=nom_en_proceso, fch_in=fch_in, fch_fn=fch_fn, 
+            # DESCARGAR EN PROCESO ESTATUS TRANSPORTE (IGUAL_C) -> Va a la carpeta \en_proceso
+            self.zsdmx389_descargar_archivos(
+                path_descarga=ruta_en_proceso, 
+                nom_archivo=nom_en_proceso, 
+                fch_in=fch_in, 
+                fch_fn=fch_fn, 
                 filtro_transporte="IGUAL_C"
             )
-            rutas_generadas['en_proceso'] = os.path.join(ruta_base, nom_en_proceso)
+            rutas_generadas['en_proceso'] = os.path.join(ruta_en_proceso, nom_en_proceso)
             
             self.emitter.keep_alive_signal.emit("Archivos ZSDMX389 actualizados", "green")
+            import time # (Asegúrate de tener este import en la cabecera de manager_sap.py)
+            print(f"✅ [{time.strftime('%H:%M:%S')}] Contingencia ZSDMX389 actualizada correctamente en: {ruta_zsdmx}")
             return rutas_generadas
             
         except Exception as e:
             self.emitter.keep_alive_signal.emit("Error actualizando ZSDMX389", "red")
             raise Exception(f"Falla descargando reportes ZSDMX389: {e}")
 
-    def descargar_contingencia_zsdmx389(self) -> str:
-        """
-        Prepara las variables y manda llamar la ejecución genérica de ZSDMX389
-        para la contingencia diaria (sobrescribe el archivo de hoy para no saturar la nube).
-        """
-        import os
-        from datetime import datetime
-        
-        # --- 1. RUTAS Y NOMBRES (Solo fecha para sobrescribir) ---
-        user_profile = os.path.expanduser("~")
-        ruta_base = os.path.join(user_profile, "Elementia S. A", "autoarribo", "zsdmx389")
-        
-        # Fallback a "Documentos" si no existe la carpeta OneDrive de Elementia
-        if not os.path.exists(os.path.dirname(os.path.dirname(ruta_base))):
-            ruta_base = os.path.join(user_profile, "Documentos", "autoarribo", "zsdmx389")
-            
-        if not os.path.exists(ruta_base):
-            os.makedirs(ruta_base)
-            
-        fecha_str = datetime.now().strftime("%Y%m%d")
-        # El archivo se llamará ZSDMX389_20260623.XLSX y se reemplazará todo el día
-        nombre_archivo = f"ZSDMX389_{fecha_str}.csv" 
-        
-        # --- 2. FECHAS DE RANGO (Año en curso) ---
-        anio_actual = datetime.now().year
-        fch_in = f"01.01.{anio_actual}"
-        fch_fn = f"31.12.{anio_actual}"
-        
-        self.emitter.keep_alive_signal.emit("Descargando archivo de contingencia ZSDMX389...", "blue")
-        
-        # --- 3. LLAMAR A LA FUNCIÓN GENÉRICA ---
-        try:
-            self.zsdmx389(path_descarga=ruta_base, nom_archivo=nombre_archivo, fch_in=fch_in, fch_fn=fch_fn, descargar=True)
-            ruta_completa = os.path.join(ruta_base, nombre_archivo)
-            
-            print(f"✅ Archivo de contingencia guardado/actualizado en: {ruta_completa}")
-            self.emitter.keep_alive_signal.emit("Archivo de contingencia actualizado", "green")
-            
-            return ruta_completa
-            
-        except Exception as e:
-            self.emitter.keep_alive_signal.emit("Error actualizando contingencia", "red")
-            raise Exception(f"Falla en contingencia ZSDMX389: {e}")
-        
     def vt16(self, centro_exp: str, fch_in: str, fch_fn: str, path_descarga: str, nom_archivo: str, status_global_in: str, status_global_fn: str, descargar: bool = True) -> bool:
         """
         Ejecuta la transacción VT16 para ver transportes creados.
