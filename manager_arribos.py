@@ -11,33 +11,49 @@ class ArribosManager:
     """
 
     def __init__(self):
-        # --- LÓGICA DE RUTAS ROBUSTA (Igual a LogManager) ---
+        self.nombre_archivo = "arribos.xlsx"
+        self.ruta_base = ""
+        self.ruta_completa = ""
+        # Quitamos la inicialización aquí, ahora dependerá de set_planta()
+
+    def set_planta(self, planta_nombre: str):
+        """
+        Configura la ruta real operativa basándose en la planta seleccionada por el operador.
+        Ej: C:\\Users\\...\\Elementia S. A\\Cementos Tula Embarques - Documentos\\kiosko\\2026\\arribos
+        """
         user_profile = os.path.expanduser("~")
         
-        # Opción Principal: OneDrive Empresarial / SharePoint
-        # Nota: Cambiamos la carpeta final de "logs" a "arribos"
-        self.ruta_base = os.path.join(user_profile, "Elementia S. A", "autoarribo", "arribos")
+        # Mapeo exacto a los nombres de las carpetas de SharePoint
+        carpetas_plantas = {
+            "Planta Tula": "Cementos Tula Embarques - Documentos",
+            "Planta Palmar": "Cementos Palmar Embarques - Documentos",
+            "Planta Vito": "Cementos Vito Embarques - Documentos",
+            "Planta Progreso": "Cementos Progreso Embarques - Documentos",
+            "CEDIS GDL": "CEDIS GDL Embarques - Documentos" 
+        }
+        
+        carpeta_planta = carpetas_plantas.get(planta_nombre, "Documentos Kiosko")
+        anio_actual = datetime.now().strftime("%Y")
+        
+        # Construimos la ruta final
+        self.ruta_base = os.path.join(
+            user_profile, 
+            "Elementia S. A", 
+            carpeta_planta, 
+            "kiosko", 
+            anio_actual, 
+            "arribos"
+        )
+        self.ruta_completa = os.path.join(self.ruta_base, self.nombre_archivo)
 
-        # Fallback de seguridad: Si no encuentra la ruta principal, usa Documentos locales
-        # Verificamos si existe la carpeta "Elementia S. A" (el padre de la ruta)
-        # Si no existe, asumimos que no hay OneDrive configurado
-        if not os.path.exists(os.path.dirname(os.path.dirname(self.ruta_base))):
-             print("⚠️ No encontré ruta OneDrive, configurando ruta local en Documentos.")
-             self.ruta_base = os.path.join(user_profile, "Documentos", "autoarribo", "arribos")
-
-        # Creamos la carpeta final si no existe
+        # Crear directorios y el archivo si no existen
         if not os.path.exists(self.ruta_base):
             try:
-                os.makedirs(self.ruta_base)
-                print(f"📁 Carpeta creada: {self.ruta_base}")
+                os.makedirs(self.ruta_base, exist_ok=True)
+                print(f"📁 Carpeta de arribos creada: {self.ruta_base}")
             except Exception as e:
                 print(f"⚠️ Error creando carpeta arribos: {e}")
-
-        # Nombre del archivo DB
-        self.nombre_archivo = "arribos.xlsx"
-        self.ruta_completa = os.path.join(self.ruta_base, self.nombre_archivo)
-        
-        # Inicializar estructura si es archivo nuevo
+                
         self._inicializar_archivo()
 
     def _inicializar_archivo(self):

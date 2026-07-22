@@ -5,38 +5,59 @@ from datetime import datetime
 from session_data import SessionData
 
 class LogManager:
-    r"""
-    Encargado de escribir los registros en Excel en la ruta
-    1. Ruta en Carpeta Copartida de One Drive
-    2. Ruta en PC local One Drive
-    ruta = C:\Users\TU_USUARIO\Documents\autoarribo\logs
-    """
-
     def __init__(self):
-        # Obtenemos la carpeta del usuario (C:\Users\Operador)
+        self.ruta_base = ""
+
+    def set_planta(self, planta_nombre: str):
+        """
+        Configura la ruta de logs dinámicamente, incluyendo el mes en español.
+        Ej: ...\kiosko\2026\logs\07_julio
+        """
         user_profile = os.path.expanduser("~")
         
+        carpetas_plantas = {
+            "Planta Tula": "Cementos Tula Embarques - Documentos",
+            "Planta Palmar": "Cementos Palmar Embarques - Documentos",
+            "Planta Vito": "Cementos Vito Embarques - Documentos",
+            "Planta Progreso": "Cementos Progreso Embarques - Documentos",
+            "CEDIS GDL": "CEDIS GDL Embarques - Documentos"
+        }
         
-        # Opción A: Si usas OneDrive Empresarial (SharePoint Sincronizado)
-        self.ruta_base = os.path.join(user_profile, "Elementia S. A", "autoarribo", "logs")
+        carpeta_planta = carpetas_plantas.get(planta_nombre, "Documentos Kiosko")
+        
+        now = datetime.now()
+        anio_actual = now.strftime("%Y")
+        
+        # Diccionario para formatear el mes "07_julio"
+        meses_es = {
+            1: '01_enero', 2: '02_febrero', 3: '03_marzo', 4: '04_abril',
+            5: '05_mayo', 6: '06_junio', 7: '07_julio', 8: '08_agosto',
+            9: '09_septiembre', 10: '10_octubre', 11: '11_noviembre', 12: '12_diciembre'
+        }
+        mes_str = meses_es.get(now.month, f"{now.month:02d}_mes")
 
-        # Fallback de seguridad: Si no encuentra OneDrive, usa Documentos
-        if not os.path.exists(os.path.dirname(self.ruta_base)):
-             print("⚠️ No encontré OneDrive, guardando en Documentos locales.")
-             self.ruta_base = os.path.join(user_profile, "Documentos", "autoarribo", "logs")
+        self.ruta_base = os.path.join(
+            user_profile, 
+            "Elementia S. A", 
+            carpeta_planta, 
+            "kiosko", 
+            anio_actual, 
+            "logs", 
+            mes_str
+        )
 
-        # Creamos la carpeta final si no existe
         if not os.path.exists(self.ruta_base):
             try:
-                os.makedirs(self.ruta_base)
-            except:
+                os.makedirs(self.ruta_base, exist_ok=True)
+                print(f"📁 Carpeta de logs creada: {self.ruta_base}")
+            except Exception as e:
                 pass
-
+                
     def _obtener_ruta_archivo_hoy(self) -> str:
         """Devuelve la ruta completa del Excel de hoy."""
         hoy_str = datetime.now().strftime("%Y%m%d")
         nombre_archivo = f"logs_{hoy_str}.xlsx"
-        # Unimos la ruta de la carpeta con el nombre del archivo
+        # Unimos la ruta de la carpeta base (que ya tiene el mes) con el archivo
         return os.path.join(self.ruta_base, nombre_archivo)
 
     def generar_siguiente_id_movimiento(self) -> str:
@@ -77,18 +98,18 @@ class LogManager:
         historial_texto = " ; ".join(session.historial_acciones)
 
         datos_fila = {
-            "ID Movimiento": id_mov,
-            "Inicio Arribo": session.inicio_arribo.strftime("%Y-%m-%d %H:%M:%S"),
-            "Ticket CloudFort": session.ticket_id,
-            "Fecha Checklist": session.fecha_checklist,
-            "Fin Arribo": datetime.now().strftime("%Y-%m-%d %H:%M:%S") if session.fin_arribo else "",
-            "Operador": session.operador,
-            "Placa": session.placa,
-            "Transporte": session.transporte_sap if hasattr(session, 'transporte_sap') else "",
-            "Remision 1": remisiones_str[0],
-            "Ultimo Paso": session.estatus_arribo_ultimo_paso,
-            "Mensaje Resultado": session.estatus_arribo_mensaje,
-            "Historial Completo": historial_texto
+            "id_movimiento": id_mov,
+            "fch_inicio_arribo": session.inicio_arribo.strftime("%Y-%m-%d %H:%M:%S"),
+            "ticket_cloudfort": session.ticket_id,
+            "fch_checklist": session.fecha_checklist,
+            "fch_fin_arribo": datetime.now().strftime("%Y-%m-%d %H:%M:%S") if session.fin_arribo else "",
+            "operador": session.operador,
+            "placa": session.placa,
+            "transporte": session.transporte_sap if hasattr(session, 'transporte_sap') else "",
+            "remision 1": remisiones_str[0],
+            "ultimo_paso": session.estatus_arribo_ultimo_paso,
+            "mgj_ult_paso": session.estatus_arribo_mensaje,
+            "historial_completo": historial_texto
         }
 
         df_nuevo = pd.DataFrame([datos_fila])

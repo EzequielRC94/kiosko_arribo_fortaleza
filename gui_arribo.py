@@ -8,7 +8,7 @@ import random # Para simular el resultado de "Arribo Correcto/Incorrecto"
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
-    QComboBox, QHeaderView, QMessageBox, QStackedWidget, QFrame
+    QComboBox, QHeaderView, QMessageBox, QStackedWidget, QFrame, QDialog
 )
 from PyQt5.QtGui import (QFont, QPixmap, QIcon)
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QSize
@@ -1312,28 +1312,32 @@ class AppWindow(QMainWindow):
                     self.session_data.estatus_contingencia = "PENDIENTE"
                 else:
                     self.session_data.estatus_contingencia = "N/A"
-                    
-                # Guardamos la cita si la encontró el robot o el WS
-                #self.session_data.fch_cita_carga = datos_sap.get("fch_cita_carga", "")
 
                 # Extraemos los estatus para evaluar
                 st_factura = datos_sap.get("st_factura", "")
                 st_transporte = datos_sap.get("st_transporte", "")
                 st_salida = datos_sap.get("st_salida_merc", "")
                 modalidad = datos_sap.get("modalidad", "").upper()
-                
+                materiales = datos_sap.get("materiales", [])
+                c_exp_sap = materiales[0].get("cen_exp", "") if materiales else ""
+            
                 errores_criticos = ["B", "C"]
                 motivo_rechazo = ""
                 
                 # APLICAMOS LAS REGLAS DE NEGOCIO:
-                if modalidad == "ENTREGADO": 
+                if not materiales: 
+                    motivo_rechazo = "Remisión sin materiales."
+                elif modalidad == "ENTREGADO": 
                     motivo_rechazo = f"Modalidad no permitida: {modalidad} - Remisión NO aplica en KIOSKO."
+                elif c_exp_sap and c_exp_sap not in self.session_data.planta_gui_codigos:
+                    motivo_rechazo = f"Esta remisión es del centro ({c_exp_sap}) y no pertenece a {self.session_data.planta_gui_nombre}."
                 elif st_factura in errores_criticos:
                     motivo_rechazo = f"Remisión ya Facturada (Estatus {st_factura})."
                 elif st_transporte in errores_criticos:
                     motivo_rechazo = f"Remisión con número de transporte (Estatus {st_transporte})."
                 elif st_salida in errores_criticos:
                     motivo_rechazo = f"Salida de Mercancías ya realizada (Estatus {st_salida})."
+                
                 
                 # ¿PASÓ LAS REGLAS?
                 if motivo_rechazo != "":
@@ -1470,20 +1474,28 @@ class AppWindow(QMainWindow):
 
 
 if __name__ == "__main__":
-    # ====================================================================
-    # TRUCO PRO: FORZAR ÍCONO EN LA BARRA DE TAREAS DE WINDOWS
-    # ====================================================================
     import ctypes
-    try:
-        myappid = 'elementia.kiosko.autoarribo.produccion.1.0' 
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-    except Exception as e:
-        print(f"Aviso: No se pudo forzar el ícono en la barra de tareas: {e}")
+    # ... (código para forzar  ícono) ...
 
-    # ====================================================================
-    # INICIO DE LA APLICACIÓN
-    # ====================================================================
     app = QApplication(sys.argv)
-    ventana = AppWindow()
-    ventana.show()
-    sys.exit(app.exec_())
+    
+    # 1. Mostrar el selector de plantas
+    from selector_plantas import DialogoSeleccionPlanta
+    dialogo = DialogoSeleccionPlanta()
+    
+    if dialogo.exec_() == QDialog.Accepted:
+        ventana = AppWindow()
+        
+        # 2. Guardar la configuración en la memoria (SessionData)
+        ventana.session_data.planta_gui_nombre = dialogo.nombre_planta
+        ventana.session_data.planta_gui_codigos = dialogo.codigos_planta
+        
+        # 3. ENRUTAMOS TUS ARCHIVOS A LA CARPETA COMPARTIDA CORRECTA
+        ventana.logger.set_planta(dialogo.nombre_planta)
+        ventana.arribos_manager.set_planta(dialogo.nombre_planta)
+        
+        print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre}")
+        ventana.show()
+        sys.exit(app.exec_())
+    else:
+        sys.exit(0)
