@@ -35,7 +35,6 @@ class SessionData:
 
         #Datos kiosko
         self.origen_datos: str = ""             # "A: Web Service", "B: Robot SAP", "C: Contingencia"
-        self.estatus_contingencia: str = ""     # "N/A", "PENDIENTE", "CERRADO"
         self.id_movimiento: str = ""            #Id de movmiento se genera al dar "nuevo arribo"
         self.ticket_id: str = ""                # Se genera con la hora del Checklist
         self.inicio_arribo = datetime.datetime.now() # Hora en que pulsó "Nuevo Arribo"
@@ -44,6 +43,9 @@ class SessionData:
         self.planta_gui_nombre: str = ""
         self.planta_gui_codigos: list = []
         self.ruta_base_drive: str
+
+        self.folio_contingencia: str = ""     # Folio de contingencia incremental
+        self.estatus_contingencia: str = ""     # "N/A", "PENDIENTE", "CERRADO"
 
         # Variables de compatibilidad (para mostrar Log resumen)
         self.estatus_arribo_ultimo_paso: str = "Inicio"  # Rastro del operador (V0, V1, V2...)
@@ -82,12 +84,14 @@ class SessionData:
 
         # Datos Kiosko
         self.origen_datos = ""
-        self.estatus_contingencia = ""
         self.id_movimiento = ""
         self.ticket_id = ""
         self.inicio_arribo = datetime.datetime.now()
         self.fin_arribo = None
         self.estatus_arribo_mensaje = ""
+
+        self.folio_contingencia = ""
+        self.estatus_contingencia = ""
 
         # Variables de compatibilidad (para mostrar Log resumen)
         self.estatus_arribo_ultimo_paso = "Inicio"

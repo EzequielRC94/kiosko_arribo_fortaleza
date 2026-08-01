@@ -19,7 +19,12 @@ class EmailManager:
 
             mail.To = self.destinatario
             mail.CC = self.copia
-            mail.Subject = f"{self.asunto_base} - {session.ticket_id}"
+
+            subject_mail = mail.Subject = f"{self.asunto_base} - {session.ticket_id}"
+            if session.origen_datos == "C: Contingencia":
+                mail.subject = f"Contingencia: {session.folio_contingencia} {subject_mail}"
+
+            
 
             # Construimos el cuerpo en HTML
             # Se agrega 'white-space: nowrap' para evitar que las columnas colapsen y se deformen

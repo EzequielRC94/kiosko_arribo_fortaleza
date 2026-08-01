@@ -139,6 +139,7 @@ class ArribosManager:
                     "transporte":              transporte_real,                         # Número de transporte (48...)
 
                     "origen_datos":            session_data.origen_datos,               # "A: Web Service", "B: Robot SAP", "C: Contingencia"
+                    "folio_contingencia":      session_data.folio_contingencia,         # "Folio asignado a contingencias"
                     "estatus_contingencia":    session_data.estatus_contingencia,       # "N/A", "PENDIENTE", "CERRADO"
 
                     # Fechas

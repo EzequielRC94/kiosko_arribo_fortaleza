@@ -822,7 +822,7 @@ class AppWindow(QMainWindow):
         self.v2.actualizar_datos()
 
         self.stacked_widget.setCurrentIndex(2)
-        self.setWindowTitle("KIOSKO ARRIBO - Paso 2: Validar Operador")
+        self.setWindowTitle(f"KIOSKO ARRIBO - Paso 2: Validar Operador: {self.session_data.operador} - {self.session_data.placa}")
 
     def navegar_a_v3(self):
         """Navega a v3 y actualiza los datos."""
@@ -1269,31 +1269,61 @@ class AppWindow(QMainWindow):
                     except ValueError:
                         peso_float = 0.0
 
+                    # Extraemos el valor crudo de SAP (F06, F07) y aseguramos que esté en mayúsculas
+                    gpo_crudo = str(row.get("GrM2", "")).strip().upper()
+                    
+                    # Diccionario de traducción (Clave SAP -> Valor Kiosko)
+                    mapeo_grupos = {
+                        "F06": "ENVASADO",
+                        "F07": "GRANEL"
+                    }
+                    
+                    # Traducimos el valor. Si SAP manda algo que no está en el diccionario, devolverá "DESCONOCIDO"
+                    gpo_final = mapeo_grupos.get(gpo_crudo, "DESCONOCIDO")
+
                     materiales_lista.append({
                         "posicion": str(row.get("Posición E", "")),
                         "material": str(row.get("Material P", "")).replace(".0", ""),
                         "cen_exp": str(row.get("Ce.", "")),
-                        "almacen": "0001", # Le asignamos el default porque el layout no lo trae
+                        "almacen": "", # Le asignamos el default porque el layout no lo trae
                         "peso_ton": peso_float,
                         "material_denominacion": str(row.get("Descripción Material", "")).strip(),
-                        "gpo_material": str(row.get("GrM2", "")).strip()
+                        "gpo_material": gpo_final
                     })
 
-                return {
+
+
+                #import json # import solo para ver el json en consola
+
+                # Asignamos el diccionario a una variable temporal
+                resultado_contingencia = {
                     "remision": rem_limpia,
-                    "cliente": str(row_cabecera.get("Nombre Destinatario", "")).strip(),
+                    "cliente": str(row_cabecera.get("Nombre Cliente", "")).strip(),
+                    "cliente_num": str(row_cabecera.get("Cliente", "")).strip(),
+                    "destinatario_nombre": str(row_cabecera.get("Nombre Destinatario", "")).strip(),
+                    "destinatario_num": str(row_cabecera.get("Destinatar", "")).strip(),
+
+                    "fch_cita_carga": str(row_cabecera.get("Destinatar", "")).strip(),
+
                     "operador": str(row_cabecera.get("Número de carta de p", "")).strip(), 
                     "placa": str(row_cabecera.get("Número de", "")).strip(),
                     "poblacion": str(row_cabecera.get("Población", "")).strip(),
                     "ruta": str(row_cabecera.get("Ruta", "")).strip(),
                     "modalidad": str(row_cabecera.get("Pto Descar", "")).strip().upper(),
-                    "clase_entrega": str(row_cabecera.get("Ex", "")).strip(), 
+                    "clase_expedicion": str(row_cabecera.get("Ex", "")).strip(), 
+                    "clase_entrega": str(row_cabecera.get("Clase de e", "")).strip(), 
                     "st_transporte": "A",
                     "st_salida_merc": "A",
                     "st_factura": "A",
                     "materiales": materiales_lista
                 }
-
+                
+                # 🕵️‍♂️ IMPRIMIR EL JSON FORMATEADO EN CONSOLA
+                #print(f"\n📦 === DEBUG JSON CONTINGENCIA (Remisión: {rem_limpia}) ===")
+                #print(json.dumps(resultado_contingencia, indent=4, ensure_ascii=False))
+                #print("========================================================\n")
+                
+                return resultado_contingencia
             # =================================================================
             # 1. INICIO Y EXTRACCIÓN DE DATOS
             # =================================================================
@@ -1359,8 +1389,7 @@ class AppWindow(QMainWindow):
                 self.session_data.origen_datos = origen_datos
                 if origen_datos == "C: Contingencia":
                     self.session_data.estatus_contingencia = "PENDIENTE"
-                else:
-                    self.session_data.estatus_contingencia = "N/A"
+                    self.session_data.folio_contingencia = "EMB_1"
 
                 # Extraemos los estatus para evaluar
                 st_factura = datos_sap.get("st_factura", "")
@@ -1464,21 +1493,159 @@ class AppWindow(QMainWindow):
             print("🌐 [RED] Conexión perdida. Cambiando a Modo Contingencia.")
             
         # Nota: Si sigue habiendo internet (True y True) o sigue caído (False y False), no hace nada.
-   
+
     def _procesar_contingencias_pendientes(self):
-            """
-            Lee arribos.xlsx con Pandas, busca estatus 'PENDIENTE', 
-            ejecuta Robot SAP y Web Service, y actualiza a 'CERRADO'.
-            """
-            print("⚙️ [SYNC] Buscando operaciones en contingencia para sincronizar...")
-            
-            # Aquí programaremos la lectura de arribos.xlsx usando Pandas.
+        import pandas as pd
+        """
+        Lee arribos.xlsx con Pandas, busca estatus 'PENDIENTE', 
+        ejecuta Robot SAP y Web Service, y actualiza a 'CERRADO'.
+        """
+        # 1. Validar conexión y recursos antes de arrancar
+        if not self.hay_internet:
+            return
+
+        # Usamos la ruta operativa configurada en el manager de arribos
+        ruta_excel = self.arribos_manager.ruta_completa
+        import os
+        if not os.path.exists(ruta_excel):
+            return
+
+        self.statusBar().showMessage("🔄 [SYNC] Buscando operaciones en contingencia para sincronizar...")
+        print("⚙️ [SYNC] Buscando operaciones en contingencia para sincronizar...")
+
+        try:
             # 1. pd.read_excel(...)
-            # 2. Filtrar filas donde 'Estatus_Contingencia' == 'PENDIENTE'
-            # 3. Por cada fila, intentar Robot SAP / WS CloudFort.
-            # 4. Si es exitoso, cambiar estatus a 'CERRADO' y sobrescribir Excel.
-            
-            pass # Placeholder para el próximo paso
+            df = pd.read_excel(ruta_excel, engine='openpyxl')
+        except Exception as e:
+            print(f"❌ [SYNC] Error leyendo excel de arribos: {e}")
+            return
+
+        # 2. Filtrar filas donde 'estatus_contingencia' == 'PENDIENTE'
+        pendientes = df[df['estatus_contingencia'] == 'PENDIENTE']
+
+        if pendientes.empty:
+            print("✅ [SYNC] No hay contingencias pendientes.")
+            self.statusBar().showMessage("✅ [SYNC] Contingencias al día.")
+            return
+
+        # Agrupar por 'ticket' (cada ticket es un camión único, aunque tenga varias filas de materiales)
+        tickets_pendientes = pendientes.groupby('ticket')
+        hubo_cambios = False
+
+        for ticket_id, grupo in tickets_pendientes:
+            try:
+                print(f"🚀 [SYNC] Procesando ticket contingencia: {ticket_id}")
+                self.statusBar().showMessage(f"🔄 Sincronizando arribo pendiente: {ticket_id}")
+                
+                # --- RECONSTRUCCIÓN DE VARIABLES DESDE EL DATAFRAME ---
+                primera_fila = grupo.iloc[0]
+                
+                centro = primera_fila.get('c_exp', 'MX47')
+                clase_entrega = primera_fila.get('clase_entrega', '')
+                operador = primera_fila.get('operador', '')
+                placas = primera_fila.get('placas', '')
+                modalidad = primera_fila.get('modalidad', '')
+                clase_exp_final = primera_fila.get('clase_expedicion', '')
+                fch_checklist = str(primera_fila.get('fch_checklist', ''))
+                origen_programado = primera_fila.get('origen_datos', '')
+
+                # Reconstruir la lista de diccionarios de remisiones y materiales requerida por SAP/WS
+                remisiones_dict = {}
+                for _, row in grupo.iterrows():
+                    rem = str(row['remision'])
+                    if rem not in remisiones_dict:
+                        remisiones_dict[rem] = {
+                            'remision': rem,
+                            'clase_entrega': str(row.get('clase_entrega', '')),
+                            'materiales': []
+                        }
+                    remisiones_dict[rem]['materiales'].append({
+                        'cen_exp': str(row.get('c_exp', '')),
+                        'peso_ton': float(row.get('ton', 0.0)),
+                        'material': str(row.get('material_cod', '')),
+                        'gpo_material': str(row.get('gpo_material', ''))
+                    })
+                remisiones = list(remisiones_dict.values())
+
+                # 3. Por cada fila, intentar Robot SAP / WS CloudFort.
+                exito_sincronizacion = False
+                transporte_generado = ""
+
+                # ----------------------------------------------------------------
+                # MODO A: WEB SERVICE (CAMA PUESTA PARA EL FUTURO)
+                # ----------------------------------------------------------------
+                if "Web Service" in origen_programado:
+                    print(f"📡 [API CF] Registrando contingencia {ticket_id} vía Web Service")
+                    
+                    # TODO: Implementar en manager_cloudfort.py
+                    # resultado_kiosko = self.cloudfort_manager.crear_folio_bascula(...)
+                    # no_transporte = self.cloudfort_manager.crear_transporte(...)
+                    # transporte_generado = str(no_transporte).strip()
+                    
+                    exito_sincronizacion = True # Simulado hasta tener WS
+
+                # ----------------------------------------------------------------
+                # MODO B: ROBOT SAP (DEFAULT / ACTUAL)
+                # ----------------------------------------------------------------
+                elif self.sap_manager.validar_conexion():
+                    print(f"🤖 [SAP] Iniciando sincronización de {ticket_id} en Kiosko")
+                    
+                    # Crear Folio
+                    resultado_kiosko = self.sap_manager.crear_folio_bascula(
+                        remisiones=remisiones,
+                        centro_expedicion=centro,
+                        tipo_remision=clase_entrega, 
+                        operador=operador,
+                        placas=placas,
+                        modalidad=modalidad
+                    )
+                    print(f"✅ [SAP] Folio creado en background: {resultado_kiosko}")
+
+                    # ⏳ PREVENCIÓN DEL ERROR COM (-2147483638): Dormimos el script medio segundo
+                    time.sleep(0.5)
+
+                    # Crear Transporte
+                    print(f"🤖 [SAP] Creando transporte en VT01N para {ticket_id}...")
+                    no_transporte = self.sap_manager.crear_transporte(
+                        remisiones=remisiones,
+                        centro_expedicion=centro,
+                        modalidad=modalidad,
+                        operador=operador,
+                        placas=placas,
+                        clase_expedicion_f=clase_exp_final, 
+                        fecha_checklist=fch_checklist
+                    )
+
+                    if no_transporte and str(no_transporte).strip().startswith("48"):
+                        transporte_generado = str(no_transporte).strip()
+                        exito_sincronizacion = True
+                        print(f"✅ [SAP] Transporte creado en background: {transporte_generado}")
+                    else:
+                        print(f"❌ [SAP] Transporte inválido generado: {no_transporte}")
+                else:
+                    print("⚠️ [SYNC] SAP no está conectado. Se intentará en el siguiente ciclo.")
+
+                # 4. Si es exitoso, cambiar estatus a 'CERRADO' y sobrescribir Excel.
+                if exito_sincronizacion:
+                    df.loc[df['ticket'] == ticket_id, 'estatus_contingencia'] = 'CERRADO'
+                    
+                    if transporte_generado:
+                        df.loc[df['ticket'] == ticket_id, 'transporte'] = transporte_generado
+                        
+                    hubo_cambios = True
+                    print(f"🎉 [SYNC] Ticket {ticket_id} cerrado exitosamente.")
+
+            except Exception as e:
+                print(f"❌ [SYNC] Error procesando ticket pendiente {ticket_id}: {e}")
+
+            # Sobrescribir el archivo completo solo si logramos sincronizar al menos uno
+            if hubo_cambios:
+                try:
+                    df.to_excel(ruta_excel, index=False, engine='openpyxl')
+                    print("💾 [SYNC] Base de datos de Arribos actualizada y guardada correctamente.")
+                    self.statusBar().showMessage("✅ Contingencias sincronizadas con SAP.", 5000)
+                except Exception as e:
+                    print(f"❌ [SYNC] Error crítico al sobrescribir {ruta_excel}: {e}")
 
     def _mocking_finalizar_simulacion_arribo(self):
             """

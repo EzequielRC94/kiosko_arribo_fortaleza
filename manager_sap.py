@@ -184,6 +184,7 @@ class SAPManager:
             #print(f"SAP Estatus Facturacion: {st_transporte}")
 
 
+            
             # --- DATOS DE FECHAS (CITA DE CARGA) ---
             fch_cita_str = ""
             
@@ -191,8 +192,22 @@ class SAPManager:
             hora_cita = session.findById("wnd[0]/usr/tabsTAXI_TABSTRIP_HEAD/tabpT\\01/ssubSUBSCREEN_BODY:SAPMV50A:2102/ctxtLIKP-LDUHR").text.strip()
             
             if fecha_cita:
-                fch_cita_str = f"{fecha_cita} {hora_cita}".strip()
-                #print(f"Cita carga: {fch_cita_str}")
+                # 1. Unimos el texto que llega de SAP
+                fch_cruda = f"{fecha_cita} {hora_cita}".strip()
+                
+                try:
+                    # 2. Parseamos asumiendo el formato de SAP (Día.Mes.Año Hora:Minuto)
+                    dt_obj = datetime.datetime.strptime(fch_cruda, "%d.%m.%Y %H:%M")
+                    
+                    # 3. Formateamos al estándar timestamp requerido
+                    fch_cita_str = dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+                    
+                except ValueError:
+                    # Si SAP envía algo raro (ej. fechas vacías tipo '00.00.0000'), 
+                    # evitamos que el programa colapse y guardamos lo que llegó.
+                    print(f"⚠️ Aviso: No se pudo formatear la fecha de SAP '{fch_cruda}'.")
+                    fch_cita_str = fch_cruda
+                print(f"Cita carga: {fch_cita_str}")
             
 
             # --- DATOS DE TRANSPORTE (Pestaña T\04) ---
