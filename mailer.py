@@ -5,7 +5,7 @@ from session_data import SessionData
 class EmailManager:
     def __init__(self):
         # Configuramos destinatarios fijos
-        self.destinatario = "msaavedra@cementosfortaleza.com; desanchezs@cementosfortaleza.com; embarquestula@elementia.com"
+        self.destinatario = "msaavedra@cementosfortaleza.com; desanchezs@cementosfortaleza.com; embarques@elementia.com"
         self.copia = "aramirezc@cementosfortaleza.com"
         self.asunto_base = "PRUEBAS: arribo en kiosko"
 
@@ -23,6 +23,8 @@ class EmailManager:
             subject_mail = mail.Subject = f"{self.asunto_base} - {session.ticket_id}"
             if session.origen_datos == "C: Contingencia":
                 mail.subject = f"Contingencia: {session.folio_contingencia} {subject_mail}"
+            else: 
+                mail.subject = subject_mail
 
             
 

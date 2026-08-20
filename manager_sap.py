@@ -207,7 +207,7 @@ class SAPManager:
                     # evitamos que el programa colapse y guardamos lo que llegó.
                     print(f"⚠️ Aviso: No se pudo formatear la fecha de SAP '{fch_cruda}'.")
                     fch_cita_str = fch_cruda
-                print(f"Cita carga: {fch_cita_str}")
+                #print(f"Cita carga: {fch_cita_str}")
             
 
             # --- DATOS DE TRANSPORTE (Pestaña T\04) ---
@@ -405,7 +405,6 @@ class SAPManager:
             # Envolvemos errores técnicos inesperados
             print(f"Error técnico detallado: {e}") # Para ver en consola
             raise Exception(f"Error técnico en SAP: {str(e)}")
-
 
     # Folios de bascula
     # ==============================================================================
@@ -1174,14 +1173,13 @@ class SAPManager:
     # ==============================================================================
     # MOTOR DE DESCARGAS Y ROBOT ORQUESTADOR ZSDMX389
     # ==============================================================================
-
     def zsdmx389_descargar_archivos(self, path_descarga: str, nom_archivo: str, fch_in: str, fch_fn: str, 
                                   org_vta: str = "0152", can_dis: str = "16", 
-                                  filtro_transporte: str = "DIF_C", 
+                                  filtro_transporte: str = "", 
                                   descargar: bool = True):
         """
         Motor genérico para ejecutar la transacción ZSDMX389.
-        filtro_transporte acepta: 'DIF_C' (Excluir C) o 'IGUAL_C' (Solo C).
+        filtro_transporte acepta: 'DIF_C' (Excluir C), 'IGUAL_C' (Solo C), Vacio no toma el filtro.
         """
         session = self.obtener_sesion()
         if not session:
@@ -1201,6 +1199,7 @@ class SAPManager:
             session.findById("wnd[0]/usr/radPA_ENTRE").select()
             
             # --- 2. FILTRO: ESTATUS PLANIF. TRANSPORTE (SO_TRSTA) ---
+            # Si el filtro llega vacio entonces no hace nada
             if filtro_transporte == "DIF_C":
                 session.findById("wnd[0]/usr/ctxtSO_TRSTA-LOW").text = ""
                 session.findById("wnd[0]/usr/btn%_SO_TRSTA_%_APP_%-VALU_PUSH").press()
@@ -1275,10 +1274,11 @@ class SAPManager:
             print(f"❌ Error interno ejecutando ZSDMX389: {e}")
             raise Exception(f"Falla en ejecución ZSDMX389: {e}")
 
-    def zsdmx389_robot(self, ruta_base_drive: str) -> dict:
+    def zsdmx389_robot(self, ruta_base_drive: str, tipo_descarga: str = "ambos") -> dict:
         """
         Robot Orquestador que recibe la ruta dinámica, crea las subcarpetas 
-        (pendientes / en_proceso) y lanza las descargas.
+        (pendientes / en_proceso) y lanza las descargas selectivas.
+        tipo_descarga acepta: 'pendientes', 'en_proceso', o 'ambos'.
         """
         import os
         from datetime import datetime
@@ -1305,33 +1305,35 @@ class SAPManager:
         fch_in = f"01.01.{anio_actual}"
         fch_fn = f"31.12.{anio_actual}"
         
-        self.emitter.keep_alive_signal.emit("Descargando reportes ZSDMX389...", "blue")
+        self.emitter.keep_alive_signal.emit(f"Descargando reportes ZSDMX389 ({tipo_descarga})...", "blue")
         rutas_generadas = {}
         
         try:
-            # DESCARGAR PENDIENTES ESTATUS (DIF_C) -> Va a la carpeta \pendientes
-            self.zsdmx389_descargar_archivos(
-                path_descarga=ruta_pendientes, 
-                nom_archivo=nom_pendientes, 
-                fch_in=fch_in, 
-                fch_fn=fch_fn, 
-                filtro_transporte="DIF_C"
-            )
-            rutas_generadas['pendientes'] = os.path.join(ruta_pendientes, nom_pendientes)
+            # --- 3A. DESCARGAR PENDIENTES ---
+            if tipo_descarga in ["pendientes", "ambos"]:
+                self.zsdmx389_descargar_archivos(
+                    path_descarga=ruta_pendientes, 
+                    nom_archivo=nom_pendientes, 
+                    fch_in=fch_in, 
+                    fch_fn=fch_fn, 
+                    filtro_transporte="" # Vacío: Trae todo lo pendiente con o sin transporte
+                )
+                rutas_generadas['pendientes'] = os.path.join(ruta_pendientes, nom_pendientes)
             
-            # DESCARGAR EN PROCESO ESTATUS TRANSPORTE (IGUAL_C) -> Va a la carpeta \en_proceso
-            self.zsdmx389_descargar_archivos(
-                path_descarga=ruta_en_proceso, 
-                nom_archivo=nom_en_proceso, 
-                fch_in=fch_in, 
-                fch_fn=fch_fn, 
-                filtro_transporte="IGUAL_C"
-            )
-            rutas_generadas['en_proceso'] = os.path.join(ruta_en_proceso, nom_en_proceso)
+            # --- 3B. DESCARGAR EN PROCESO ---
+            if tipo_descarga in ["en_proceso", "ambos"]:
+                self.zsdmx389_descargar_archivos(
+                    path_descarga=ruta_en_proceso, 
+                    nom_archivo=nom_en_proceso, 
+                    fch_in=fch_in, 
+                    fch_fn=fch_fn, 
+                    filtro_transporte="IGUAL_C" # Solo C: Trae solo lo que está en proceso
+                )
+                rutas_generadas['en_proceso'] = os.path.join(ruta_en_proceso, nom_en_proceso)
             
-            self.emitter.keep_alive_signal.emit("Archivos ZSDMX389 actualizados", "green")
-            import time # (Asegúrate de tener este import en la cabecera de manager_sap.py)
-            print(f"✅ [{time.strftime('%H:%M:%S')}] Contingencia ZSDMX389 actualizada correctamente en: {ruta_zsdmx}")
+            self.emitter.keep_alive_signal.emit(f"Archivos ZSDMX389 ({tipo_descarga}) actualizados", "green")
+            import time
+            # print(f"✅ [{time.strftime('%H:%M:%S')}] Contingencia ZSDMX389 actualizada correctamente en: {ruta_zsdmx}")
             return rutas_generadas
             
         except Exception as e:

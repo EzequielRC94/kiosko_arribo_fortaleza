@@ -599,7 +599,6 @@ class navegar_a_v_final(QWidget):
         else:
             self.btn_regresar.hide()
 
-
 # ====================================================================
 # VENTANA PRINCIPAL (Contenedor de Ventanas y Lógica de Flujo)
 # ====================================================================
@@ -695,18 +694,26 @@ class AppWindow(QMainWindow):
         # ====================================================================
         # 💻 KEEP-ALIVE WINDOWS: Evitamos que el Kiosko entre en reposo
         evitar_bloqueo_windows()
-        self.sap_manager.iniciar_keep_alive(intervalo_minutos=6)
+        self.sap_manager.iniciar_keep_alive(intervalo_minutos=13)
         self.hay_internet = True  # Asumimos que inicia con conexión
+        
+        # --- TEMPORIZADOR PARA PING DE INTERNET ---
         self.timer_internet = QTimer(self)
         self.timer_internet.timeout.connect(self._ping_internet)
-        self.timer_internet.start(60000) # Revisa cada 60 segundos (60000 ms)
+        intervalo_ping_minutos = 5
+        tiempo_de_revision_ms = intervalo_ping_minutos * 60 * 1000
+        print(f"🌐 [RED] Internet iniciado. Intervalo: {intervalo_ping_minutos} min")
+        self.timer_internet.start(tiempo_de_revision_ms)
+
 
         # --- TEMPORIZADOR PARA ROBOT DESCARGA ZSDMX389 ---
         self.timer_robot_sap = QTimer(self)
         self.timer_robot_sap.timeout.connect(self._ejecutar_robot_zsdmx)
-        # 20 minutos = 21 * 60 * 1000 = 1,260,000 milisegundos
-        self.timer_robot_sap.start(1260000)
         
+        intervalo_robot_minutos = 21  # minutos
+        tiempo_robot_ms = intervalo_robot_minutos * 60 * 1000
+        print(f"🤖 [SAP] Robot ZSDMX389 iniciado. Intervalo: {intervalo_robot_minutos} min")
+        self.timer_robot_sap.start(tiempo_robot_ms)
 
         # Conexión SAP Keep-Alive SAP 
         self.sap_manager.emitter.keep_alive_signal.connect(self._actualizar_estado_sap)
@@ -771,17 +778,17 @@ class AppWindow(QMainWindow):
     def _ejecutar_robot_zsdmx(self):
         """
         Función disparada cada 20 minutos. Lanza el robot pasando la ruta global
-        para mantener actualizada la contingencia local (Plan C).
+        para mantener actualizada la contingencia local (Plan C) SOLO PENDIENTES.
         """
         if self.hay_internet and self.sap_manager.validar_conexion():
-            print("⏳ [ROBOT] Iniciando actualización programada de ZSDMX389...")
+            print(f"[{time.strftime('%H:%M:%S')}]⏳ [ROBOT] Iniciando actualización programada de ZSDMX389 (Pendientes)...")
             try:
-                # Le pasamos la ruta dinámica que configuramos al arrancar
-                self.sap_manager.zsdmx389_robot(self.session_data.ruta_base_drive)
+                # Le pasamos el nuevo parámetro 'tipo_descarga'
+                self.sap_manager.zsdmx389_robot(self.session_data.ruta_base_drive, tipo_descarga="pendientes")
             except Exception as e:
-                print(f"⚠️ Error en ejecución automática del robot ZSDMX389: {e}")
+                print(f"⚠️ [{time.strftime('%H:%M:%S')}] Error en ejecución automática del robot ZSDMX389: {e}")
         else:
-            print("⚠️ [ROBOT] Descarga de contingencia omitida (Sin internet o sin SAP).")
+            print(f"⚠️ [{time.strftime('%H:%M:%S')}] [ROBOT] Descarga de contingencia omitida (Sin internet o sin SAP).")
 
 
     # --- Métodos de Navegación ---
@@ -795,6 +802,7 @@ class AppWindow(QMainWindow):
 
     def navegar_a_v1(self):
         """Navega a V1 y reinicia la sesión (nuevo arribo)."""
+        self._ping_internet()
         self.session_data.reset_session()
         self.session_data.ultimo_paso = "V1_Ingreso_Remision"
         nuevo_id = self.logger.generar_siguiente_id_movimiento()
@@ -1030,7 +1038,8 @@ class AppWindow(QMainWindow):
 
             print("⏳ Iniciando temporizador de reinicio automático (3 min)...")
             self.timer_autoreset.start(180000)
-    
+            
+
     # --- Lógica de Procesamiento ---
 
     def validar_placa_CloudFort(self):
@@ -1215,84 +1224,17 @@ class AppWindow(QMainWindow):
             def _metodo_b_robot(rem: str) -> dict:
                 return self.sap_manager.extraer_datos_remision(rem)
 
+            
             def _metodo_c_excel(rem: str) -> dict:
-                import os
-                import glob
-                import pandas as pd
+                # Ahora simplemente llamamos a nuestro Manager parametrizado
+                resultado_contingencia = self.arribos_manager.leer_zsdmx389_local(
+                    ruta_base_drive=self.session_data.ruta_base_drive, 
+                    rem=rem, 
+                    tipo_archivo="pendientes"
+                )
+                return resultado_contingencia
 
-                # --- 1. BUSCAR EL ARCHIVO MÁS RECIENTE ---
-                ruta_carpeta = os.path.join(self.session_data.ruta_base_drive, "zsdmx389", "pendientes")
-                archivos = glob.glob(os.path.join(ruta_carpeta, "ZSDMX389_pendientes_*.csv"))
-                
-                if not archivos:
-                    raise Exception(f"No hay archivos de contingencia disponibles en la carpeta: {ruta_carpeta}")
-
-                archivo_reciente = max(archivos, key=os.path.getmtime)
-
-                # --- 2. LEER Y LIMPIAR EL DATAFRAME ---
-                try:
-                    # MAGIA 1: na_filter=False evita que Pandas escriba la palabra "nan"
-                    df = pd.read_csv(archivo_reciente, sep='\t', skiprows=3, encoding='latin1', dtype=str, na_filter=False)
-                except Exception as e:
-                    raise Exception(f"Error al leer el archivo CSV de contingencia: {e}")
-
-                # Limpiar nombres de columnas (SAP deja espacios a veces)
-                df.columns = df.columns.str.strip()
-
-                # La Fila 4 del Excel original es vacía, la borramos filtrando Entregas vacías
-                df = df[df['Entrega'].str.strip() != ""]
-
-                # --- 3. TRATAMIENTO DE DUPLICADOS ---
-                # Quitamos espacios y ceros decimales (.0)
-                df['Entrega'] = df['Entrega'].str.replace(r'\.0$', '', regex=True).str.strip()
-                df['Posición E'] = df['Posición E'].str.replace(r'\.0$', '', regex=True).str.strip()
-
-                # MAGIA 2: keep='last' asegura que nos quedemos con la fila que tiene los datos de cabecera completos
-                df = df.drop_duplicates(subset=['Entrega', 'Posición E'], keep='last')
-
-                # --- 4. BUSCAR LA REMISIÓN ---
-                rem_limpia = str(rem).strip()
-                df_rem = df[df['Entrega'] == rem_limpia]
-
-                if df_rem.empty:
-                    raise Exception(f"Remisión {rem_limpia} no encontrada en la contingencia local.")
-
-                # --- 5. MAPEAR DATOS AL JSON (DICCIONARIO) ---
-                row_cabecera = df_rem.iloc[0]
-                materiales_lista = []
-                
-                for _, row in df_rem.iterrows():
-                    try:
-                        # Quitamos comas de los miles si existen y convertimos a float
-                        peso_str = str(row.get("Peso Entre", "0")).replace(",", "").strip()
-                        peso_float = float(peso_str) if peso_str else 0.0
-                    except ValueError:
-                        peso_float = 0.0
-
-                    # Extraemos el valor crudo de SAP (F06, F07) y aseguramos que esté en mayúsculas
-                    gpo_crudo = str(row.get("GrM2", "")).strip().upper()
-                    
-                    # Diccionario de traducción (Clave SAP -> Valor Kiosko)
-                    mapeo_grupos = {
-                        "F06": "ENVASADO",
-                        "F07": "GRANEL"
-                    }
-                    
-                    # Traducimos el valor. Si SAP manda algo que no está en el diccionario, devolverá "DESCONOCIDO"
-                    gpo_final = mapeo_grupos.get(gpo_crudo, "DESCONOCIDO")
-
-                    materiales_lista.append({
-                        "posicion": str(row.get("Posición E", "")),
-                        "material": str(row.get("Material P", "")).replace(".0", ""),
-                        "cen_exp": str(row.get("Ce.", "")),
-                        "almacen": "", # Le asignamos el default porque el layout no lo trae
-                        "peso_ton": peso_float,
-                        "material_denominacion": str(row.get("Descripción Material", "")).strip(),
-                        "gpo_material": gpo_final
-                    })
-
-
-
+            """
                 #import json # import solo para ver el json en consola
 
                 # Asignamos el diccionario a una variable temporal
@@ -1323,7 +1265,7 @@ class AppWindow(QMainWindow):
                 #print(json.dumps(resultado_contingencia, indent=4, ensure_ascii=False))
                 #print("========================================================\n")
                 
-                return resultado_contingencia
+                return resultado_contingencia """
             # =================================================================
             # 1. INICIO Y EXTRACCIÓN DE DATOS
             # =================================================================
@@ -1372,8 +1314,13 @@ class AppWindow(QMainWindow):
                             try:
                                 self.statusBar().showMessage(f"Plan C: Buscando en Archivo Local Excel...")
                                 self.session_data.registrar_paso("[EXCEL] Inicio", "Buscando en zsdmx389")
-                                datos_sap = _metodo_c_excel(remision) 
+                                datos_sap = self.arribos_manager.leer_zsdmx389_local(
+                                    ruta_base_drive=self.session_data.ruta_base_drive, 
+                                    rem=remision, 
+                                    tipo_archivo="pendientes"
+                                )
                                 origen_datos = "C: Contingencia"
+
                             except Exception as e_excel:
                                 self.session_data.registrar_paso("[EXCEL] Falla", str(e_excel))
 
@@ -1458,7 +1405,7 @@ class AppWindow(QMainWindow):
     def _ping_internet(self):
         """
         Revisa la conexión a Internet intentando alcanzar el DNS de Google.
-        Si detecta que el internet regresó, dispara la sincronización de contingencias.
+        Actualiza la barra de estado y dispara sincronizaciones si regresa la red.
         """
         import socket
         estado_actual = False
@@ -1473,26 +1420,33 @@ class AppWindow(QMainWindow):
         except OSError:
             estado_actual = False
 
-        # --- LÓGICA DE TRANSICIÓN (PING-PONG) ---
+        # --- LÓGICA DE TRANSICIÓN Y ESTADOS ---
         
-        # CASO 1: El internet REGRESÓ (Era False y ahora es True)
-        if estado_actual and not self.hay_internet:
-            self.hay_internet = True
-            self.statusBar().setStyleSheet("color: green;")
-            self.statusBar().showMessage("✅ Conexión a Internet RECUPERADA. Iniciando sincronización...")
-            print("🌐 [RED] Conexión recuperada. Ejecutando pendientes...")
-            
-            # Disparamos la lectura del Excel para procesar contingencias
-            self._procesar_contingencias_pendientes()
-
-        # CASO 2: El internet SE CAYÓ (Era True y ahora es False)
-        elif not estado_actual and self.hay_internet:
-            self.hay_internet = False
+        if not estado_actual:
+            # CASO 1: No hay internet (Ya sea que se acaba de caer o sigue caído)
+            if self.hay_internet:
+                self.hay_internet = False
+                print(f"[{time.strftime('%H:%M:%S')}] 🌐 [RED] Conexión perdida. Cambiando a Modo Contingencia.")
+                
             self.statusBar().setStyleSheet("color: red; font-weight: bold;")
-            self.statusBar().showMessage("⚠️ SIN CONEXIÓN A INTERNET. Kiosko operando en Modo Contingencia Local.")
-            print("🌐 [RED] Conexión perdida. Cambiando a Modo Contingencia.")
+            self.statusBar().showMessage(f"⚠️ [{time.strftime('%H:%M:%S')}] SIN CONEXIÓN A INTERNET. Kiosko operando en Modo Contingencia Local.")
             
-        # Nota: Si sigue habiendo internet (True y True) o sigue caído (False y False), no hace nada.
+        else:
+            if not self.hay_internet:
+                # CASO 2: No había internet pero ahora ya hay (El internet REGRESÓ)
+                self.hay_internet = True
+                self.statusBar().setStyleSheet("color: green;")
+                self.statusBar().showMessage(f"✅ [{time.strftime('%H:%M:%S')}] Conexión a Internet RECUPERADA. Iniciando sincronización...")
+                print(f"✅ [{time.strftime('%H:%M:%S')}] 🌐  [RED] Conexión recuperada. Ejecutando pendientes...")
+                
+                # Disparamos la lectura del Excel para procesar contingencias
+                self._procesar_contingencias_pendientes()
+                
+            else:
+                # CASO 3: Hay internet estable (Se mantiene la conexión)
+                self.statusBar().setStyleSheet("color: green;")
+                self.statusBar().showMessage(f"✅ [{time.strftime('%H:%M:%S')}] Trabajando con internet")
+        # Nota: Internet caído (False y False), no hace nada.
 
     def _procesar_contingencias_pendientes(self):
         import pandas as pd
@@ -1691,53 +1645,24 @@ class AppWindow(QMainWindow):
 
 if __name__ == "__main__":
     import ctypes
-    from datetime import datetime
     
     app = QApplication(sys.argv)
     
-    # 1. Mostrar el selector de plantas
-    from selector_plantas import DialogoSeleccionPlanta
-    dialogo = DialogoSeleccionPlanta()
+    # 1. Mostrar el selector unificado
+    from gui_selector_planta import obtener_configuracion_inicial
+    session_config = obtener_configuracion_inicial()
     
-    if dialogo.exec_() == QDialog.Accepted:
+    if session_config:
         ventana = AppWindow()
         
-        # 2. Guardar la configuración en la memoria (SessionData)
-        ventana.session_data.planta_gui_nombre = dialogo.nombre_planta
-        ventana.session_data.planta_gui_codigos = dialogo.codigos_planta
+        # 2. Reemplazar la sesión vacía de la ventana por la configurada
+        ventana.session_data = session_config
         
-        # =================================================================
-        # 2.1 CALCULAR Y GUARDAR LA RUTA BASE DRIVE
-        # =================================================================
-        user_profile = os.path.expanduser("~")
-        
-        carpetas_plantas = {
-            "Planta Tula": "Cementos Tula Embarques - Documentos",
-            "Planta Palmar": "Cementos Palmar Embarques - Documentos",
-            "Planta Vito": "Cementos Vito Embarques - Documentos",
-            "Planta Progreso": "Cementos Progreso Embarques - Documentos",
-            "CEDIS GDL": "CEDIS GDL Embarques - Documentos" 
-        }
-        
-        carpeta_planta = carpetas_plantas.get(dialogo.nombre_planta, "Documentos Kiosko")
-        anio_actual = datetime.now().strftime("%Y")
-        
-        # Construimos la ruta hasta el año en curso
-        ruta_calculada = os.path.join(
-            user_profile, 
-            "Elementia S. A", 
-            carpeta_planta, 
-            "kiosko", 
-            anio_actual
-        )
-        
-        # La asignamos a la variable que creamos en SessionData
-        # 3. ENRUTAMOS TUS ARCHIVOS A LA CARPETA COMPARTIDA CORRECTA
-        ventana.session_data.ruta_base_drive = ruta_calculada
+        # 3. Enrutar archivos
         ventana.arribos_manager.configurar_ruta(ventana.session_data.ruta_base_drive)
         ventana.logger.configurar_ruta(ventana.session_data.ruta_base_drive)
         
-        print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre}")
+        print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre} {ventana.session_data.planta_gui_codigos}")
         ventana.show()
         sys.exit(app.exec_())
     else:

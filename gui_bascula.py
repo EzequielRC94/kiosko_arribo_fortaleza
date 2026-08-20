@@ -2,6 +2,8 @@
 import sys
 import random
 import time
+import os
+
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -10,86 +12,50 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QFont, QColor, QBrush
 from PyQt5.QtCore import Qt, QTimer, QSize
+from manager_arribos import ArribosManager
+from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
+from manager_sap import SAPManager
+from session_data import SessionData
 
-# Simulación de importación de Managers (en producción usarás los reales)
-# from sap_manager import SAPManager 
 
-# ==============================================================================
-# CONFIGURACIÓN DE VISTAS Y PLANTAS
-# ==============================================================================
 
-CATALOGO_PLANTAS = {
-    "Planta Tula":      ["MX47", "MX57"],
-    "Planta Palmar":    ["MX16"],
-    "Planta Progreso":  ["MX76"],
-    "Planta Vito":      ["MX46"],
-    "CEDIS GDL":        ["MX83"]
-}
 
 # Configuración de las "Pestañas" o Vistas del Carrusel
 # Clave: Nombre de la vista
 # Valor: Lista de palabras clave para filtrar el material
-VISTAS_CONFIG = [
-    {"nombre": "GRANEL",                 "filtros": ["GRANEL"]},
-    {"nombre": "BIG BAG",                "filtros": ["BIG BAG"]},
-    {"nombre": "ENVASADO - CPC 30 RS",   "filtros": ["CPC 30 RS", "CPC30 RS"]},
-    {"nombre": "ENVASADO - MAGNO",       "filtros": ["MAGNO"]},
-    {"nombre": "ENVASADO - BLANCOS",     "filtros": ["BCO", "BLANCO", "MORTERO"]}
-]
-
-# ==============================================================================
-# V0: SELECCIÓN DE PLANTA (Reutilizado)
-# ==============================================================================
-class VentanaSeleccionPlanta(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Configuración de Báscula")
-        self.resize(600, 500)
-        self.setStyleSheet("background-color: #f0f0f0;")
-        
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(50, 50, 50, 50)
-
-        lbl_titulo = QLabel("OPERADOR BÁSCULA\nSELECCIONE SU UBICACIÓN")
-        lbl_titulo.setFont(QFont("Arial", 18, QFont.Weight.Bold))
-        lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(lbl_titulo)
-
-        for nombre_planta, codigos in CATALOGO_PLANTAS.items():
-            btn = QPushButton(f"{nombre_planta}")
-            btn.setFont(QFont("Arial", 14))
-            btn.setFixedHeight(60)
-            btn.setProperty("codigos", codigos) 
-            btn.setProperty("nombre", nombre_planta)
-            btn.setStyleSheet("""
-                QPushButton { background-color: #008080; color: white; border-radius: 8px; }
-                QPushButton:hover { background-color: #006666; }
-            """)
-            btn.clicked.connect(self.abrir_bascula)
-            layout.addWidget(btn)
-
-    def abrir_bascula(self):
-        sender = self.sender()
-        self.ventana_main = VentanaBasculaMain(sender.property("nombre"), sender.property("codigos"))
-        self.ventana_main.show()
-        self.close()
 
 # ==============================================================================
 # VENTANA PRINCIPAL DE OPERACIÓN
 # ==============================================================================
 class VentanaBasculaMain(QMainWindow):
-    def __init__(self, nombre_planta, codigos_sap):
+    def __init__(self, session_data: SessionData):
         super().__init__()
-        self.nombre_planta = nombre_planta
-        self.codigos_sap = codigos_sap
+        self.sap_manager = SAPManager()
+
+        self.session_data = session_data
+        self.nombre_planta = session_data.planta_gui_nombre # <-- Lo extraemos
+        self.codigos_sap = session_data.planta_gui_codigos # <-- Lo extraemos
+
+        # --- NUEVA LÓGICA: CONFIGURACIÓN DINÁMICA DE VISTAS ---
+        if "Tula" in self.nombre_planta:
+            self.vistas_config = [
+                {"nombre": "GRANEL - LÍNEA 1 (MX47)",   "gpo": "GRANEL",   "ce": "MX47"},
+                {"nombre": "GRANEL - LÍNEA 2 (MX57)",   "gpo": "GRANEL",   "ce": "MX57"},
+                {"nombre": "ENVASADO - LÍNEA 1 (MX47)", "gpo": "ENVASADO", "ce": "MX47"},
+                {"nombre": "ENVASADO - LÍNEA 2 (MX57)", "gpo": "ENVASADO", "ce": "MX57"}
+            ]
+        else:
+            self.vistas_config = [
+                {"nombre": "GRANEL",   "gpo": "GRANEL",   "ce": None},
+                {"nombre": "ENVASADO", "gpo": "ENVASADO", "ce": None}
+            ]
         
         # Estado
         self.indice_vista_actual = 0
         self.datos_totales = [] # Aquí vivirá la "Base de Datos" temporal
         
         # UI Config
-        self.setWindowTitle(f"Control de Báscula - {nombre_planta}")
+        self.setWindowTitle(f"Control de Báscula - {session_data.planta_gui_nombre}")
         self.showMaximized()
         self.setStyleSheet("background-color: #E8E8E8;")
 
@@ -140,7 +106,7 @@ class VentanaBasculaMain(QMainWindow):
         """)
         self.btn_cambiar_vista.clicked.connect(self.cambiar_vista)
 
-        # Botón LLAMAR (La Magia)
+        # Botón LLAMAR
         self.btn_llamar = QPushButton("📢 LLAMAR SELECCIONADOS")
         self.btn_llamar.setFixedHeight(100)
         self.btn_llamar.setFont(QFont("Arial", 18, QFont.Weight.Bold))
@@ -161,12 +127,15 @@ class VentanaBasculaMain(QMainWindow):
         # 2/3 INFERIOR: TABLA DE OPERADORES
         # ---------------------------------------------------------
         self.tabla = QTableWidget()
-        columnas = ["Sel", "Turno", "Transporte (SAP)", "Material", "Ton", "Operador", "Estatus"]
+        columnas = ["Sel", "Turno", "Remision", "Transporte", "Material", "Ton", "Placas", "Operador", "Estatus"]
         self.tabla.setColumnCount(len(columnas))
         self.tabla.setHorizontalHeaderLabels(columnas)
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         # La columna 0 (Sel) más pequeña
-        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        # Lista de índices de las columnas que queremos auto-ajustar
+        columnas_autoajuste = [0, 1, 2, 3, 5, 6, 8]
+        for col in columnas_autoajuste:
+            self.tabla.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         
         self.tabla.setStyleSheet("""
             QTableWidget { background-color: white; font-size: 14px; gridline-color: #ccc; }
@@ -181,27 +150,54 @@ class VentanaBasculaMain(QMainWindow):
         # ---------------------------------------------------------
         # INICIALIZACIÓN
         # ---------------------------------------------------------
-        self._mock_cargar_datos_iniciales() # Cargar datos falsos
-        self.actualizar_interfaz_vista()    # Pintar V1
+        # ¡Magia! Ya no calculas la ruta aquí, solo la extraes de la sesión
+        self.ruta_base_drive = self.session_data.ruta_base_drive
+
+        # 2. Instanciar el manager de arribos
+        self.arribos_manager = ArribosManager()
+
+        # 3. Carga inicial de datos reales
+        self.cargar_datos_reales()
+        self.actualizar_interfaz_vista()
+
+         # 💻 KEEP-ALIVE WINDOWS: Evitamos que la gui entre en reposo
+        evitar_bloqueo_windows()
+        self.sap_manager.iniciar_keep_alive(intervalo_minutos=13)
         
-        # Timer para simular refresco automático de SAP cada 30s
-        self.timer_refresh = QTimer()
-        self.timer_refresh.timeout.connect(self._mock_refresco_sap)
-        self.timer_refresh.start(30000)
+        # 4. Timer 
+        # --- TEMPORIZADOR PARA PING DE INTERNET ---
+        #self.timer_internet = QTimer(self)
+        #self.timer_internet.timeout.connect(self._ping_internet)
+        #intervalo_ping_minutos = 5
+        #tiempo_de_revision_ms = intervalo_ping_minutos * 60 * 1000
+        #print(f"🌐 [RED] Internet iniciado. Intervalo: {intervalo_ping_minutos} min")
+        #self.timer_internet.start(tiempo_de_revision_ms)
+
+        # --- TEMPORIZADOR PARA ROBOT DESCARGA ZSDMX389 ---
+        self.timer_robot_sap = QTimer(self)
+        intervalo_robot_minutos = 5  # minutos
+        tiempo_robot_ms = intervalo_robot_minutos * 60 * 1000
+        print(f"🤖 [SAP] Robot ZSDMX389 iniciado. Intervalo: {intervalo_robot_minutos} min")
+        self.timer_robot_sap.start(tiempo_robot_ms)
+        self.timer_robot_sap.timeout.connect(self._ejecutar_robot_zsdmx_bascula)
+        self.timer_robot_sap.timeout.connect(self.cargar_datos_reales)
+    
 
     # ==========================================================================
     # LÓGICA DE VISTAS
     # ==========================================================================
+    
     def cambiar_vista(self):
         """Cicla entre las vistas configuradas en VISTAS_CONFIG."""
-        self.indice_vista_actual = (self.indice_vista_actual + 1) % len(VISTAS_CONFIG)
+        self.indice_vista_actual = (self.indice_vista_actual + 1) % len(self.vistas_config)
         self.actualizar_interfaz_vista()
 
     def actualizar_interfaz_vista(self):
         """Filtra los datos globales y repuebla la tabla según la vista actual."""
-        config_actual = VISTAS_CONFIG[self.indice_vista_actual]
+        config_actual = self.vistas_config[self.indice_vista_actual]
         nombre_vista = config_actual["nombre"]
-        palabras_clave = config_actual["filtros"]
+        filtro_gpo = config_actual["gpo"]
+        filtro_ce = config_actual["ce"]
 
         self.lbl_vista_titulo.setText(f"VISTA: {nombre_vista}")
         
@@ -210,27 +206,28 @@ class VentanaBasculaMain(QMainWindow):
         suma_toneladas = 0.0
         
         for camion in self.datos_totales:
-            mat_desc = camion["material"].upper()
-            estatus = camion["estatus"]
+            estatus = camion.get("estatus", "")
             
-            # Solo mostramos lo que está EN ESPERA o LLAMADO (no los que ya entraron)
+            # 1. Filtro de Estatus (Solo ESPERA o LLAMADO)
             if estatus not in ["ESPERA", "LLAMADO"]:
                 continue
 
-            # Lógica de coincidencia (si alguna palabra clave está en la descripción)
-            coincide = False
-            for kw in palabras_clave:
-                if kw in mat_desc:
-                    coincide = True
-                    break
-            
-            if coincide:
-                items_filtrados.append(camion)
-                if estatus == "ESPERA": # Solo sumamos pendientes reales
-                    suma_toneladas += camion["toneladas"]
+            # 2. Filtro por Grupo de Material (Envasado o Granel)
+            if camion.get("gpo_material") != filtro_gpo:
+                continue
+
+            # 3. Filtro por Centro de Expedición (Solo aplica si la vista tiene un "ce" específico como Tula)
+            if filtro_ce and camion.get("c_exp") != filtro_ce:
+                continue
+
+            # Si pasa todos los filtros, lo agregamos a la tabla
+            items_filtrados.append(camion)
+            if estatus == "ESPERA": 
+                suma_toneladas += float(camion.get("toneladas", 0.0))
 
         # Actualizar KPIs
-        self.lbl_kpi_unidades.setText(f"Pendientes: {len([x for x in items_filtrados if x['estatus']=='ESPERA'])}")
+        pendientes = len([x for x in items_filtrados if x.get("estatus") == "ESPERA"])
+        self.lbl_kpi_unidades.setText(f"Pendientes: {pendientes}")
         self.lbl_kpi_toneladas.setText(f"Total Ton: {suma_toneladas:.2f} TON")
 
         # Poblar Tabla
@@ -239,21 +236,26 @@ class VentanaBasculaMain(QMainWindow):
     def _llenar_tabla(self, lista_camiones):
         self.tabla.setRowCount(0)
         
+        # 1. Asegurar que las columnas del encabezado sean las nuevas (puedes poner esto en tu __init__ también)
+        columnas = ["Sel", "Turno", "Remision", "Transporte", "Material", "Ton", "Placas", "Operador", "Estatus"]
+        self.tabla.setColumnCount(len(columnas))
+        self.tabla.setHorizontalHeaderLabels(columnas)
+        
         for i, datos in enumerate(lista_camiones):
             row = self.tabla.rowCount()
             self.tabla.insertRow(row)
             
-            # Columna 0: Checkbox (Solo si está en ESPERA)
+            # Columna 0: Checkbox
             chk_widget = QWidget()
             chk = QCheckBox()
             chk.setStyleSheet("margin-left: 10px;")
             if datos["estatus"] == "ESPERA":
                 chk.setChecked(False)
             else:
-                chk.setDisabled(True) # Si ya está llamado, no se selecciona
+                chk.setDisabled(True) 
             
-            # Guardamos referencia al ID (transporte) en el checkbox para buscarlo luego
-            chk.setProperty("id_transporte", datos["transporte"])
+            # Usamos la remisión como el ID infalible para no depender del transporte vacío
+            chk.setProperty("id_identificador", datos["remision"])
             
             layout_chk = QHBoxLayout(chk_widget)
             layout_chk.addWidget(chk)
@@ -261,12 +263,14 @@ class VentanaBasculaMain(QMainWindow):
             layout_chk.setContentsMargins(0,0,0,0)
             self.tabla.setCellWidget(row, 0, chk_widget)
 
-            # Resto de columnas
+            # Resto de columnas en el orden exacto de tu nuevo arreglo
             vals = [
                 datos["turno"],
+                datos["remision"],
                 datos["transporte"],
                 datos["material"],
                 f"{datos['toneladas']:.2f}",
+                datos["placas"],
                 datos["operador"],
                 datos["estatus"]
             ]
@@ -275,55 +279,92 @@ class VentanaBasculaMain(QMainWindow):
                 item = QTableWidgetItem(str(valor))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 
-                # Colorear fila si ya está llamado
                 if datos["estatus"] == "LLAMADO":
-                    item.setBackground(QColor("#D5F5E3")) # Verde claro
+                    item.setBackground(QColor("#D5F5E3")) 
                     item.setForeground(QColor("#145A32"))
                 
                 self.tabla.setItem(row, col_idx, item)
+        print(f"✅ [{time.strftime('%H:%M:%S')}] Tabla Actualizada")
 
-    # ==========================================================================
-    # LÓGICA DE ACCIÓN (MAGIA)
-    # ==========================================================================
+
     def accion_llamar_operadores(self):
-        """
-        1. Recorre la tabla buscando checkboxes marcados.
-        2. Obtiene los números de transporte.
-        3. Llama a SAP Manager para actualizar estatus (Simulado).
-        4. Actualiza la data local y refresca la tabla.
-        """
-        transportes_a_llamar = []
+        """Llama a los operadores seleccionados usando la Remisión como llave"""
+        identificadores_a_llamar = []
         
-        # 1. Escanear Tabla
+        # Escanear Tabla
         filas = self.tabla.rowCount()
         for r in range(filas):
             widget_chk = self.tabla.cellWidget(r, 0)
             if widget_chk:
                 chk = widget_chk.findChild(QCheckBox)
                 if chk and chk.isChecked():
-                    t_id = chk.property("id_transporte")
-                    transportes_a_llamar.append(t_id)
+                    t_id = chk.property("id_identificador") # Sacamos la remisión
+                    identificadores_a_llamar.append(t_id)
 
-        if not transportes_a_llamar:
+        if not identificadores_a_llamar:
             QMessageBox.warning(self, "Atención", "Seleccione al menos un operador de la lista para llamar.")
             return
 
-        # Confirmación
         confirm = QMessageBox.question(
             self, "Confirmar Llamado",
-            f"¿Desea llamar a {len(transportes_a_llamar)} operadores a Báscula?",
+            f"¿Desea llamar a {len(identificadores_a_llamar)} operadores a Báscula?",
             QMessageBox.Yes | QMessageBox.No
         )
         
         if confirm == QMessageBox.Yes:
-            print(f"📡 Enviando solicitud a SAP/Backend para transportes: {transportes_a_llamar}")
+            print(f"📡 Marcando remisiones como LLAMADAS: {identificadores_a_llamar}")
             
-            # 2. PROCESAMIENTO (Aquí iría self.sap_manager.actualizar_estatus(...))
-            exito = self._simular_update_sap(transportes_a_llamar)
+            # Simulamos el guardado del estatus en tu base temporal
+            for rem_id in identificadores_a_llamar:
+                for camion in self.datos_totales:
+                    if camion["remision"] == rem_id:
+                        camion["estatus"] = "LLAMADO"
             
-            if exito:
-                QMessageBox.information(self, "Éxito", "Operadores llamados correctamente.\nEl tablero de espera se actualizará en breve.")
-                self.actualizar_interfaz_vista()
+            QMessageBox.information(self, "Éxito", "Operadores llamados correctamente.")
+            self.actualizar_interfaz_vista()
+
+    # ==========================================================================
+    # CARGA DE DATOS REALES
+    # ==========================================================================
+    def _ejecutar_robot_zsdmx_bascula(self):
+        """
+        Descarga EXCLUSIVAMENTE las remisiones EN PROCESO para actualizar el tablero de báscula.
+        """
+        import time
+        if self.sap_manager.validar_conexion():
+            print(f"⏳ [{time.strftime('%H:%M:%S')}] [ROBOT BÁSCULA] Iniciando actualización de ZSDMX389 (En Proceso)...")
+            try:
+                # Aquí inyectamos la orden de solo bajar los estatus "IGUAL_C"
+                self.sap_manager.zsdmx389_robot(self.ruta_base_drive, tipo_descarga="en_proceso")
+                
+                # Después de descargar, refrescamos el tablero localmente
+                self.cargar_datos_reales()
+            except Exception as e:
+                print(f"⚠️ [{time.strftime('%H:%M:%S')}] Error en ejecución automática del robot ZSDMX389 (Báscula): {e}")
+
+    def cargar_datos_reales(self):
+        """Extrae la data en vivo del Excel ZSDMX389 (En Proceso)"""
+        try:
+            # Pasamos rem=None para que traiga la lista completa y tipo_archivo="en_proceso"
+            nuevos_datos = self.arribos_manager.leer_zsdmx389_local(
+                ruta_base_drive=self.ruta_base_drive, 
+                rem=None, 
+                tipo_archivo="en_proceso",
+                codigos_planta=self.session_data.planta_gui_codigos
+            )
+            
+            # TRUCO: Conservar el estatus visual "LLAMADO"
+            transportes_llamados = [camion["transporte"] for camion in self.datos_totales if camion.get("estatus") == "LLAMADO"]
+            
+            for nuevo_cam in nuevos_datos:
+                if nuevo_cam["transporte"] in transportes_llamados:
+                    nuevo_cam["estatus"] = "LLAMADO"
+
+            self.datos_totales = nuevos_datos
+            self.actualizar_interfaz_vista()
+            
+        except Exception as e:
+            print(f"⚠️ Aviso: No se pudo refrescar el tablero de báscula: {e}")
 
     def _simular_update_sap(self, lista_transportes):
         """
@@ -385,11 +426,17 @@ class VentanaBasculaMain(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
-    # Fuente global un poco más grande para pantalla táctil/operador
     font = QFont("Arial", 12)
     app.setFont(font)
     
-    ventana = VentanaSeleccionPlanta()
-    ventana.show()
-    sys.exit(app.exec_())
+    # Usar el selector unificado
+    from gui_selector_planta import obtener_configuracion_inicial
+    session_config = obtener_configuracion_inicial()
+    
+    if session_config:
+        ventana = VentanaBasculaMain(session_config)
+        print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre} {ventana.session_data.planta_gui_codigos}")
+        ventana.show()
+        sys.exit(app.exec_())
+    else:
+        sys.exit(0)

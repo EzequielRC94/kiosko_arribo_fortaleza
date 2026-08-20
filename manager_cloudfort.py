@@ -5,7 +5,7 @@ from datetime import datetime
 class CloudFortManager:
     def __init__(self):
         # 1. Base URL general del servicio
-        self.url_base = "http://cloudfort.net/cementosfortaleza/api/"
+        self.url_base = "https://cloudfort.elementia.com/cementosfortaleza/api/"
         
         # 2. Gestión de Tokens (Token por defecto + Diccionario para futuros tokens específicos)
         self.token_default = "6Lkosl00sCAkBBBLdei_J12Y456e4VD6Zgxw5RqR"
