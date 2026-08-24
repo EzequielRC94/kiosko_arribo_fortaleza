@@ -32,7 +32,6 @@ class Ventana0_Inicio(QWidget):
     """Ventana inicial con el botón 'Nuevo Arribo'."""
     nuevo_arribo_signal = pyqtSignal()
 
-    
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -247,8 +246,6 @@ class Ventana2_datos_operador(QWidget):
         self.btn_si.clicked.connect(self.confirmar_operador_signal.emit)
         self.btn_no.clicked.connect(self.cancelar_arribo_signal.emit)
 
-    
-    
     def _crear_lbl_grande(self, titulo: str, valor: str) -> QWidget:
         widget = QWidget()
         v_layout = QVBoxLayout(widget)
@@ -263,14 +260,10 @@ class Ventana2_datos_operador(QWidget):
         v_layout.addWidget(l2, alignment=Qt.AlignmentFlag.AlignCenter)
         return widget
 
-    def actualizar_datos(self):
+    def actualizar_datos(self, session_real):
         """Actualiza los labels con la info de la sesión actual."""
-        self.lbl_operador.findChildren(QLabel)[1].setText(self.session_data.operador)
-        self.lbl_placa.findChildren(QLabel)[1].setText(self.session_data.placa)
-
-    def actualizar_datos(self):
-        self.lbl_operador.findChildren(QLabel)[1].setText(self.session_data.operador)
-        self.lbl_placa.findChildren(QLabel)[1].setText(self.session_data.placa)
+        self.lbl_operador.findChildren(QLabel)[1].setText(session_real.operador)
+        self.lbl_placa.findChildren(QLabel)[1].setText(session_real.placa)
 
 class Ventana2_1_DatosOperadorFacecam(QWidget):
     """
@@ -498,20 +491,19 @@ class Ventana3_Verificacion(QWidget):
         self.session_data.clase_expedicion = self.cmb_clase_expedicion.currentText()
         self.finalizar_arribo_signal.emit()
 
-    def actualizar_datos(self):
-        """Recarga la información del SessionData en la GUI."""
-        # 1. Actualizar datos comunes (Cliente, Operador, Placa, Peso)
-        # Buscamos el segundo QLabel de cada widget (el que tiene el valor)
-        self.lbl_cliente.findChildren(QLabel)[1].setText(self.session_data.destinatario_nombre)
-        self.lbl_operador.findChildren(QLabel)[1].setText(self.session_data.operador)
-        self.lbl_placa.findChildren(QLabel)[1].setText(self.session_data.placa)
+    def actualizar_datos(self, session_real):
+        """Recarga la información inyectando la sesión actual en la GUI."""
+        # 1. Actualizar datos comunes
+        self.lbl_cliente.findChildren(QLabel)[1].setText(session_real.destinatario_nombre)
+        self.lbl_operador.findChildren(QLabel)[1].setText(session_real.operador)
+        self.lbl_placa.findChildren(QLabel)[1].setText(session_real.placa)
 
-        # 2. Calculo del peso total
-        peso_acumulado = self.session_data.obtener_peso_total()
+        # Calculo del peso total
+        peso_acumulado = session_real.obtener_peso_total()
         self.lbl_peso_total.findChildren(QLabel)[1].setText(f"{peso_acumulado:,.2f} TON")
         
-        # 2.1 PRESELECCIONAR CLASE DE EXPEDICIÓN DE CLOUDFORT ---
-        clase_epx_cf = self.session_data.tipo_unidad_cloudfort.upper()[:2] # Ej: "F1"
+        # PRESELECCIONAR CLASE DE EXPEDICIÓN DE CLOUDFORT
+        clase_epx_cf = session_real.tipo_unidad_cloudfort.upper()[:2]
         for i in range(self.cmb_clase_expedicion.count()):
             if self.cmb_clase_expedicion.itemText(i).startswith(clase_epx_cf):
                 self.cmb_clase_expedicion.setCurrentIndex(i)
@@ -520,7 +512,7 @@ class Ventana3_Verificacion(QWidget):
         # 2. Actualizar tabla de materiales
         self.tabla_materiales.setRowCount(0)
         
-        for remision_data in self.session_data.remisiones_agregadas:
+        for remision_data in session_real.remisiones_agregadas:
             remision_id = remision_data.get("remision", "N/A")
             materiales = remision_data.get("materiales", [])
             
@@ -528,22 +520,6 @@ class Ventana3_Verificacion(QWidget):
                 row_pos = self.tabla_materiales.rowCount()
                 self.tabla_materiales.insertRow(row_pos)
                 
-                # Llenar las celdas
-                self.tabla_materiales.setItem(row_pos, 0, QTableWidgetItem(remision_id))
-                self.tabla_materiales.setItem(row_pos, 1, QTableWidgetItem(material.get("material_denominacion", "")))
-                self.tabla_materiales.setItem(row_pos, 2, QTableWidgetItem(f"{material.get('peso_ton', 0):,.2f}"))
-        # 2. Actualizar tabla
-        self.tabla_materiales.setRowCount(0)
-        
-        for remision_data in self.session_data.remisiones_agregadas:
-            remision_id = remision_data.get("remision", "N/A")
-            materiales = remision_data.get("materiales", [])
-            
-            for material in materiales:
-                row_pos = self.tabla_materiales.rowCount()
-                self.tabla_materiales.insertRow(row_pos)
-                
-                # Celdas (Remisión, Material, Peso)
                 self.tabla_materiales.setItem(row_pos, 0, QTableWidgetItem(remision_id))
                 self.tabla_materiales.setItem(row_pos, 1, QTableWidgetItem(material.get("material_denominacion", "")))
                 self.tabla_materiales.setItem(row_pos, 2, QTableWidgetItem(f"{material.get('peso_ton', 0):,.2f}"))
@@ -827,7 +803,7 @@ class AppWindow(QMainWindow):
 
     def navegar_v2_validar_op (self):
         """Navegar a V2 validar operador y placas"""
-        self.v2.actualizar_datos()
+        self.v2.actualizar_datos(self.session_data)
 
         self.stacked_widget.setCurrentIndex(2)
         self.setWindowTitle(f"KIOSKO ARRIBO - Paso 2: Validar Operador: {self.session_data.operador} - {self.session_data.placa}")
@@ -835,7 +811,7 @@ class AppWindow(QMainWindow):
     def navegar_a_v3(self):
         """Navega a v3 y actualiza los datos."""
         self.session_data.ultimo_paso = "V3_Verificacion_Materiales"
-        self.v3.actualizar_datos()
+        self.v3.actualizar_datos(self.session_data)
         self.stacked_widget.setCurrentIndex(3)
         self.setWindowTitle("KIOSKO ARRIBO - Paso 3: Verificar Carga")
     
@@ -1045,7 +1021,7 @@ class AppWindow(QMainWindow):
     def validar_placa_CloudFort(self):
         """
         Valida las placas del operador.
-        Soporta modo simulación (mock) y modo real (Web Service).
+        Soporta modo simulación (mock), modo real (Web Service) y modo CONTINGENCIA.
         """
         placa = self.session_data.placa
         self.session_data.ultimo_paso = "V2_Validacion_CloudFort"
@@ -1055,34 +1031,47 @@ class AppWindow(QMainWindow):
         # VARIABLE DE CONTROL (True = Simulación, False = Web Service Real)
         # ====================================================================
         mock_placa = False
-
         respuesta_cloudfort = {}
 
-        if mock_placa:
+        if not self.hay_internet:
+            # ====================================================================
+            # 1A. MODO CONTINGENCIA (Sin red: Asumimos Checklist manual OK)
+            # ====================================================================
+            print("⚙️ [CONTINGENCIA] Sin internet. Omitiendo validación CloudFort...")
+            self.session_data.registrar_paso("[API CF] Contingencia", "Validación WS omitida por falta de red. Check-list manual asumido OK.")
+            
+            # Simulamos un ofertamiento de hace 5 minutos para que pase la regla de tiempo (menor a 120 min)
+            fecha_simulada_dt = datetime.now() - timedelta(minutes=5)
+            
+            respuesta_cloudfort = {
+                "fch_hr_ofertamiento": fecha_simulada_dt.strftime("%Y-%m-%d %H:%M:%S"), 
+                "checklist_ruleta": "VERDE",
+                "dopping": "NEGATIVO",
+                "clase_exp": "F1" # Este valor por defecto será corregido luego por SAPManager basado en el peso real
+            }
+
+        elif mock_placa:
+            # ====================================================================
+            # 1B. SIMULACIÓN DE RESPUESTA (Aleatoria para pruebas locales)
+            # ====================================================================
             print("⚙️ [MOCK] Ejecutando validación simulada de CloudFort...")
-            # ====================================================================
-            # 1A. SIMULACIÓN DE RESPUESTA (Timestamp String)
-            # ====================================================================
             minutos_atras = random.randint(10, 150)
             fecha_simulada_dt = datetime.now() - timedelta(minutes=minutos_atras)
-            fecha_simulada_str = fecha_simulada_dt.strftime("%Y-%m-%d %H:%M:%S")
 
             respuesta_cloudfort = {
-                "fch_hr_ofertamiento": fecha_simulada_str, 
+                "fch_hr_ofertamiento": fecha_simulada_dt.strftime("%Y-%m-%d %H:%M:%S"), 
                 "checklist_ruleta": random.choices(["VERDE", "ROJO"], weights=[80, 20], k=1)[0],
                 "dopping": random.choice(["0", "NEGATIVO", "POSITIVO", "FALSEO INFORMACIÓN", "NEGACIÓN PRUEBA"]),
                 "tipo_unidad": random.choice(["F1", "F2", "F3", "F4", "F5", "F7"])
             }
         else:
-            # print("🌐 [WS] Consultando API CloudFort...")
             # ====================================================================
-            # 1B. LLAMADA REAL AL WEB SERVICE
+            # 1C. LLAMADA REAL AL WEB SERVICE
             # ====================================================================
             try:
-                # Usamos el manager que ya tienes programado
                 respuesta_cloudfort = self.cloudfort_manager.validar_placa(placa)
             except Exception as e:
-                # Si el WS falla (timeout, error 500, etc.), atrapamos el error y cerramos el ticket
+                # Si falla la red de forma intermitente justo aquí, se bloquea. 
                 self.session_data.registrar_paso("[API CF] Error", str(e))
                 return self.finalizar_con_error(
                     paso_actual="V2_Validacion_CloudFort",
@@ -1090,11 +1079,11 @@ class AppWindow(QMainWindow):
                     titulo_pantalla="ERROR DE RED"
                 )
 
-        # Validación de seguridad: Asegurar que el WS devolvió un diccionario útil
+        # Validación de seguridad: Asegurar que la respuesta devuelta tenga los datos mínimos
         if not respuesta_cloudfort or "fch_hr_ofertamiento" not in respuesta_cloudfort:
             return self.finalizar_con_error(
                 paso_actual="V2_Validacion_CloudFort",
-                mensaje_error="La respuesta de CloudFort no contiene datos válidos para procesar el arribo.",
+                mensaje_error="La respuesta no contiene datos válidos para procesar el arribo.",
                 titulo_pantalla="DATOS INVÁLIDOS"
             )
       
@@ -1105,41 +1094,36 @@ class AppWindow(QMainWindow):
         # A. Convertimos el TEXTO a OBJETO DATETIME para poder calcular
         try:
             fecha_checklist = datetime.strptime(respuesta_cloudfort.get("fch_hr_ofertamiento", ""), "%Y-%m-%d %H:%M:%S")
-            #print(f"Fch y hr Checklist: {fecha_checklist}")
         except ValueError:
-            #print("Error: Formato de fecha inválido desde CloudFort")
             fecha_checklist = datetime.now()
 
         # B. Generamos el Ticket ID basado en la fecha del checklist
         ticket_id = fecha_checklist.strftime("%Y%m%d_%H%M%S")
         
-       # C. Guardamos en SessionData
+        # C. Guardamos en SessionData
         self.session_data.ticket_id = ticket_id
         self.session_data.fecha_checklist = respuesta_cloudfort.get("fch_hr_ofertamiento", "")
         self.session_data.tipo_unidad_cloudfort = str(respuesta_cloudfort.get("clase_exp", "F1"))
         
-        # --- REEMPLAZO DEL PRINT POR REGISTRAR_PASO ---
         self.session_data.registrar_paso("[API CF] Ticket Creado", f"ID: {ticket_id}")
-        #print(f"DEBUG: Tipo de unidad: {self.session_data.tipo_unidad_cloudfort}")
 
         # ====================================================================
-        # 3. CÁLCULO DE TIEMPO (AHORA - OFERTAMIENTO) PAra determinar arribo valido
+        # 3. CÁLCULO DE TIEMPO (AHORA - OFERTAMIENTO) Para determinar arribo válido
         # ====================================================================
         
         ahora = datetime.now()
         diferencia = ahora - fecha_checklist
         minutos_transcurridos = diferencia.total_seconds() / 60
         
-        #print(f"DEBUG: Han pasado {minutos_transcurridos:.2f} minutos desde checklist.")
-
         # ====================================================================
         # 4. REGLAS DE NEGOCIO
         # ====================================================================
         
         # Regla 1: Tiempo límite (120 min)
+        # Nota: Aquí tienes 600, asumo que expandiste el margen a 10 horas en desarrollo.
         tiempo_ok = minutos_transcurridos <= 600
         
-        # Reglas de Seguridad (Usamos .get() con strings vacíos por seguridad y forzamos mayúsculas)
+        # Reglas de Seguridad
         ruleta_verde = str(respuesta_cloudfort.get("checklist_ruleta", "")).upper() == "VERDE"
         dopping_negativo = str(respuesta_cloudfort.get("dopping", "")).upper() == "NEGATIVO"
 
@@ -1659,7 +1643,7 @@ if __name__ == "__main__":
         ventana.session_data = session_config
         
         # 3. Enrutar archivos
-        ventana.arribos_manager.configurar_ruta(ventana.session_data.ruta_base_drive)
+        ventana.arribos_manager.configurar_ruta(ventana.session_data)
         ventana.logger.configurar_ruta(ventana.session_data.ruta_base_drive)
         
         print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre} {ventana.session_data.planta_gui_codigos}")

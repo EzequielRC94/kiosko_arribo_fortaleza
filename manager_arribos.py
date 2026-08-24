@@ -17,22 +17,26 @@ class ArribosManager:
         self.ruta_completa = ""
         # Quitamos la inicialización aquí, ahora dependerá de set_planta()
 
-    def configurar_ruta(self, ruta_base_drive: str):
+    def configurar_ruta(self, session_data: SessionData):
         """
-        Configura la ruta real operativa basándose en la variable global del Kiosko.
-        Agrega automáticamente la subcarpeta 'arribos'.
+        Configura la ruta real operativa extrayendo los datos de la sesión.
+        Agrega automáticamente la subcarpeta 'arribos' y la planta.
         """
-        # 1. Usamos la ruta dinámica heredada de SessionData
-        self.ruta_base = os.path.join(ruta_base_drive, "arribos")
+        # 1. Extraemos las variables directamente de la memoria (SessionData)
+        ruta_global = session_data.ruta_base_drive
+        planta = session_data.planta_gui_nombre
         
-        # 2. Construimos la ruta exacta al Excel
+        # 2. Construimos la ruta de la carpeta (Ej: ...\2026\arribos\Planta Tula)
+        self.ruta_base = os.path.join(ruta_global, "arribos", planta)
+        
+        # 3. Construimos la ruta exacta al Excel
         self.ruta_completa = os.path.join(self.ruta_base, self.nombre_archivo)
 
-        # 3. Crear directorios y el archivo si no existen
+        # 4. Crear directorios y el archivo si no existen
         if not os.path.exists(self.ruta_base):
             try:
                 os.makedirs(self.ruta_base, exist_ok=True)
-                print(f"📁 Carpeta de arribos creada: {self.ruta_base}")
+                print(f"📁 Carpeta de arribos creada para {planta}: {self.ruta_base}")
             except Exception as e:
                 print(f"⚠️ Error creando carpeta arribos: {e}")
                 
@@ -342,18 +346,29 @@ class ArribosManager:
                 transporte_str = str(row_cab.get("No. Viaje", "")).strip()
                 placas_str = str(row_cab.get("Número de", "")).strip()
                 operador_crudo = str(row_cab.get("Número de carta de p", "")).strip()
+                destinatario_nom = str(row_cab.get("Nombre Destinatario", "")).strip()
+                fch_planif = str(row_cab.get("Fecha crea.1", "")).strip()
+                modalidad = str(row_cab.get("Pto Descar", "")).strip()
 
                 lista_tablero.append({
+                    "remision": entrega,
                     "c_exp": c_exp,
-                    "turno": "PENDIENTE", 
-                    "remision": entrega, 
-                    "transporte": transporte_str, 
+                    "destinatario_nom": destinatario_nom,
+                    "modalidad": modalidad,
+                    
+                   
                     "material": material_combinado,
                     "gpo_material": x_gpo_material,
                     "toneladas": peso_total,
+
                     "placas": placas_str,
                     "operador": limpiar_operador(operador_crudo),
-                    "estatus": "ESPERA"
+
+                    "transporte": transporte_str,
+                    "fch_planif": fch_planif,
+
+                    "estatus": "ESPERA",
+                    "turno": "PENDIENTE"
                 })
             
             return lista_tablero

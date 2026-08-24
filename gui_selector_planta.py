@@ -46,6 +46,7 @@ class DialogoSeleccionPlanta(QDialog):
         
         # 2. Calcular la ruta dinámica
         user_profile = os.path.expanduser("~")
+        """
         carpetas_plantas = {
             "Planta Tula": "Cementos Tula Embarques - Documentos",
             "Planta Palmar": "Cementos Palmar Embarques - Documentos",
@@ -54,13 +55,13 @@ class DialogoSeleccionPlanta(QDialog):
             "CEDIS GDL": "CEDIS GDL Embarques - Documentos" 
         }
         carpeta_planta = carpetas_plantas.get(nombre, "Documentos Kiosko")
+        """
         anio_actual = datetime.now().strftime("%Y")
         
         ruta_calculada = os.path.join(
             user_profile, 
             "Elementia S. A", 
-            carpeta_planta, 
-            "kiosko", 
+            "kiosko logistica cem - Documentos", 
             anio_actual
         )
         

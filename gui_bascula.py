@@ -17,9 +17,6 @@ from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
 from manager_sap import SAPManager
 from session_data import SessionData
 
-
-
-
 # Configuración de las "Pestañas" o Vistas del Carrusel
 # Clave: Nombre de la vista
 # Valor: Lista de palabras clave para filtrar el material
@@ -33,22 +30,28 @@ class VentanaBasculaMain(QMainWindow):
         self.sap_manager = SAPManager()
 
         self.session_data = session_data
-        self.nombre_planta = session_data.planta_gui_nombre # <-- Lo extraemos
-        self.codigos_sap = session_data.planta_gui_codigos # <-- Lo extraemos
+        self.nombre_planta = session_data.planta_gui_nombre # <--
+        self.codigos_sap = session_data.planta_gui_codigos # <--
+
 
         # --- NUEVA LÓGICA: CONFIGURACIÓN DINÁMICA DE VISTAS ---
         if "Tula" in self.nombre_planta:
             self.vistas_config = [
-                {"nombre": "GRANEL - LÍNEA 1 (MX47)",   "gpo": "GRANEL",   "ce": "MX47"},
-                {"nombre": "GRANEL - LÍNEA 2 (MX57)",   "gpo": "GRANEL",   "ce": "MX57"},
-                {"nombre": "ENVASADO - LÍNEA 1 (MX47)", "gpo": "ENVASADO", "ce": "MX47"},
-                {"nombre": "ENVASADO - LÍNEA 2 (MX57)", "gpo": "ENVASADO", "ce": "MX57"}
+                {"nombre": "GRANEL - LÍNEA 1 (MX47)",   "gpo": "GRANEL",   "ce": "MX47", "filtro_mat": ""},
+                {"nombre": "GRANEL - LÍNEA 2 (MX57)",   "gpo": "GRANEL",   "ce": "MX57", "filtro_mat": ""},
+                {"nombre": "ENVASADO - FORTALEZA (L2)","gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "FORTALEZA"},
+                {"nombre": "ENVASADO - MORTEROS (L2)", "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "MORTERO"},
+                  {"nombre": "ENVASADO - BIG BAG (L2)", "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "BIG BAG"},
+                {"nombre": "ENVASADO - MAGNOS (L1)",   "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "MAGNO"},
+                {"nombre": "ENVASADO - BLANCOS (L1)",  "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "BCO"},
             ]
         else:
             self.vistas_config = [
-                {"nombre": "GRANEL",   "gpo": "GRANEL",   "ce": None},
-                {"nombre": "ENVASADO", "gpo": "ENVASADO", "ce": None}
+                {"nombre": "GRANEL",  "gpo": "GRANEL",   "ce": "", "filtro_mat": ""},
+                {"nombre": "ENVASADO","gpo": "ENVASADO", "ce": "", "filtro_mat": ""},
+
             ]
+
         
         # Estado
         self.indice_vista_actual = 0
@@ -57,7 +60,7 @@ class VentanaBasculaMain(QMainWindow):
         # UI Config
         self.setWindowTitle(f"Control de Báscula - {session_data.planta_gui_nombre}")
         self.showMaximized()
-        self.setStyleSheet("background-color: #E8E8E8;")
+        self.setStyleSheet("background-color: #FFFFFF;")
 
         # Layout Principal
         central_widget = QWidget()
@@ -127,13 +130,12 @@ class VentanaBasculaMain(QMainWindow):
         # 2/3 INFERIOR: TABLA DE OPERADORES
         # ---------------------------------------------------------
         self.tabla = QTableWidget()
-        columnas = ["Sel", "Turno", "Remision", "Transporte", "Material", "Ton", "Placas", "Operador", "Estatus"]
+        columnas = ["Sel", "Estatus", "Turno", "Remision", "Transporte", "Material", "Ton", "Modalidad", "Placas", "Operador", "Destinatario"]
         self.tabla.setColumnCount(len(columnas))
         self.tabla.setHorizontalHeaderLabels(columnas)
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # La columna 0 (Sel) más pequeña
         # Lista de índices de las columnas que queremos auto-ajustar
-        columnas_autoajuste = [0, 1, 2, 3, 5, 6, 8]
+        columnas_autoajuste = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
         for col in columnas_autoajuste:
             self.tabla.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         
@@ -198,6 +200,7 @@ class VentanaBasculaMain(QMainWindow):
         nombre_vista = config_actual["nombre"]
         filtro_gpo = config_actual["gpo"]
         filtro_ce = config_actual["ce"]
+        filtro_mat = config_actual.get("filtro_mat", "")
 
         self.lbl_vista_titulo.setText(f"VISTA: {nombre_vista}")
         
@@ -205,30 +208,37 @@ class VentanaBasculaMain(QMainWindow):
         items_filtrados = []
         suma_toneladas = 0.0
         
-        for camion in self.datos_totales:
-            estatus = camion.get("estatus", "")
+        for x_remision in self.datos_totales:
+            estatus = x_remision.get("estatus", "")
             
             # 1. Filtro de Estatus (Solo ESPERA o LLAMADO)
             if estatus not in ["ESPERA", "LLAMADO"]:
                 continue
 
             # 2. Filtro por Grupo de Material (Envasado o Granel)
-            if camion.get("gpo_material") != filtro_gpo:
+            if x_remision.get("gpo_material") != filtro_gpo:
                 continue
 
             # 3. Filtro por Centro de Expedición (Solo aplica si la vista tiene un "ce" específico como Tula)
-            if filtro_ce and camion.get("c_exp") != filtro_ce:
+            if filtro_ce != "" and x_remision.get("c_exp") != filtro_ce:
+                continue
+
+            # 4. : Filtro por Familia de Material (Solo si la vista lo requiere)
+            if filtro_mat != "" and filtro_mat not in str(x_remision.get("material", "")): 
                 continue
 
             # Si pasa todos los filtros, lo agregamos a la tabla
-            items_filtrados.append(camion)
+            items_filtrados.append(x_remision)
             if estatus == "ESPERA": 
-                suma_toneladas += float(camion.get("toneladas", 0.0))
+                suma_toneladas += float(x_remision.get("toneladas", 0.0))
 
         # Actualizar KPIs
         pendientes = len([x for x in items_filtrados if x.get("estatus") == "ESPERA"])
         self.lbl_kpi_unidades.setText(f"Pendientes: {pendientes}")
         self.lbl_kpi_toneladas.setText(f"Total Ton: {suma_toneladas:.2f} TON")
+
+        # ordenar array
+        items_filtrados.sort(key=lambda x: str(x.get("transporte", "")))
 
         # Poblar Tabla
         self._llenar_tabla(items_filtrados)
@@ -237,7 +247,7 @@ class VentanaBasculaMain(QMainWindow):
         self.tabla.setRowCount(0)
         
         # 1. Asegurar que las columnas del encabezado sean las nuevas (puedes poner esto en tu __init__ también)
-        columnas = ["Sel", "Turno", "Remision", "Transporte", "Material", "Ton", "Placas", "Operador", "Estatus"]
+        columnas = ["Sel", "Estatus", "Turno", "Remision", "Transporte", "Material", "Ton", "Mod", "Placas", "Operador", "Destinatario", "Espera"]
         self.tabla.setColumnCount(len(columnas))
         self.tabla.setHorizontalHeaderLabels(columnas)
         
@@ -263,16 +273,37 @@ class VentanaBasculaMain(QMainWindow):
             layout_chk.setContentsMargins(0,0,0,0)
             self.tabla.setCellWidget(row, 0, chk_widget)
 
-            # Resto de columnas en el orden exacto de tu nuevo arreglo
+            try:
+                # OJO: Ajusta "%d.%m.%Y %H:%M:%S" al formato exacto que te da SAP en el CSV
+                fch_obj = datetime.strptime(datos["fch_planif"], "%d.%m.%Y %H:%M:%S")
+                delta = datetime.now() - fch_obj
+                
+                dias = delta.days
+                horas = delta.seconds // 3600
+                minutos = (delta.seconds % 3600) // 60
+                
+                if dias > 0:
+                    tiempo_espera = f"{dias}d {horas}h"
+                else:
+                    tiempo_espera = f"{horas}h {minutos}m"
+            except:
+                tiempo_espera = "---" # Por si SAP manda un formato raro o vacío
+
+            modalidad = str(datos.get("modalidad", ""))[:3].upper()
+
+            # 2. Ensamblar la fila en el orden EXACTO de tus columnas (Índices 1 al 10)
             vals = [
-                datos["turno"],
-                datos["remision"],
-                datos["transporte"],
-                datos["material"],
-                f"{datos['toneladas']:.2f}",
-                datos["placas"],
-                datos["operador"],
-                datos["estatus"]
+                datos["estatus"],           # Columna 1: Estatus
+                datos["turno"],             # Columna 2: Turno
+                datos["remision"],          # Columna 3: Remision
+                datos["transporte"],        # Columna 4: Transporte
+                datos["material"],          # Columna 5: Material
+                f"{datos['toneladas']:.2f}",# Columna 6: Ton
+                modalidad,                  # Columna 7: Modalidad
+                datos["placas"],            # Columna 8: Placas
+                datos["operador"],          # Columna 9: Operador
+                datos["destinatario_nom"],  # Columna 10: Destinatario
+                tiempo_espera               # Columna 11: Espera
             ]
 
             for col_idx, valor in enumerate(vals, start=1):
@@ -282,10 +313,33 @@ class VentanaBasculaMain(QMainWindow):
                 if datos["estatus"] == "LLAMADO":
                     item.setBackground(QColor("#D5F5E3")) 
                     item.setForeground(QColor("#145A32"))
-                
+
+                # --- FORMATO CONDICIONAL PARA MODALIDAD ---
+                elif col_idx == 7: 
+                    if valor == "ENT":
+                        item.setBackground(QColor("#FFCBCE")) # Rosa/Rojo de tu VBA
+                        item.setForeground(QColor("#943126")) # Texto rojo oscuro
+                    elif valor == "AUT":
+                        item.setBackground(QColor("#C6F3CE")) # Verde de tu VBA
+                        item.setForeground(QColor("#1E8449")) # Texto verde oscuro
+                    elif valor == "RET":
+                        item.setBackground(QColor("#FFEB9C")) # Amarillo de tu VBA
+                        item.setForeground(QColor("#7D6608")) # Texto café/dorado
+                elif col_idx == 5: # <-- Asegúrate de que 5 sea tu columna de Material
+                    from catalogos import CATALOGO_MATERIALES
+                    
+                    # Buscamos qué material del catálogo está contenido en el texto de la celda
+                    for data in CATALOGO_MATERIALES.values():
+                        if data["desc_nom_corto"] in str(valor):
+                            # Si lo encuentra, aplica los colores configurados y rompe el ciclo
+                            if "bg" in data:
+                                item.setBackground(QColor(data["bg"]))
+                            if "fg" in data:
+                                item.setForeground(QColor(data["fg"]))
+                            break
+            
                 self.tabla.setItem(row, col_idx, item)
         print(f"✅ [{time.strftime('%H:%M:%S')}] Tabla Actualizada")
-
 
     def accion_llamar_operadores(self):
         """Llama a los operadores seleccionados usando la Remisión como llave"""
@@ -316,9 +370,9 @@ class VentanaBasculaMain(QMainWindow):
             
             # Simulamos el guardado del estatus en tu base temporal
             for rem_id in identificadores_a_llamar:
-                for camion in self.datos_totales:
-                    if camion["remision"] == rem_id:
-                        camion["estatus"] = "LLAMADO"
+                for x_remision in self.datos_totales:
+                    if x_remision["remision"] == rem_id:
+                        x_remision["estatus"] = "LLAMADO"
             
             QMessageBox.information(self, "Éxito", "Operadores llamados correctamente.")
             self.actualizar_interfaz_vista()
@@ -343,7 +397,20 @@ class VentanaBasculaMain(QMainWindow):
                 print(f"⚠️ [{time.strftime('%H:%M:%S')}] Error en ejecución automática del robot ZSDMX389 (Báscula): {e}")
 
     def cargar_datos_reales(self):
-        """Extrae la data en vivo del Excel ZSDMX389 (En Proceso)"""
+        """Extrae la data en vivo del Excel ZSDMX389 (En Proceso)
+        Por eso hacemos el "truco" en 4 pasos:
+
+        Paso 1 (La Foto): transportes_llamados = [...] -> Recorremos la tabla que está ahorita mismo
+          en pantalla y anotamos en una libreta (la lista) solo las remisiones de los que están en verde.
+
+        Paso 2 (La Revisión): for nuevo_cam in nuevos_datos: -> Recorremos la información fresquecita que acaba de llegar de SAP.
+
+        Paso 3 (La Inyección): if nuevo_cam["remision"] in transportes_llamados: -> Le decimos a Python: 
+         "Oye, si este camión nuevo resulta que está en mi libreta de los que ya llamé, cámbiale a la fuerza el estatus a LLAMADO antes de que lo mostremos".
+
+        Paso 4 (El Reemplazo): self.datos_totales = nuevos_datos -> Ahora sí, 
+         reemplazamos la información global con los datos frescos, pero ya llevan nuestra memoria inyectada."""
+
         try:
             # Pasamos rem=None para que traiga la lista completa y tipo_archivo="en_proceso"
             nuevos_datos = self.arribos_manager.leer_zsdmx389_local(
@@ -354,12 +421,16 @@ class VentanaBasculaMain(QMainWindow):
             )
             
             # TRUCO: Conservar el estatus visual "LLAMADO"
-            transportes_llamados = [camion["transporte"] for camion in self.datos_totales if camion.get("estatus") == "LLAMADO"]
-            
+            # Paso 1 (La Foto): transportes_llamados
+            transportes_llamados = [x_remision["remision"] for x_remision in self.datos_totales if x_remision.get("estatus") == "LLAMADO"]
+
+            # Paso 2 Recorremos la información fresquecita que acaba de llegar de SAP
             for nuevo_cam in nuevos_datos:
-                if nuevo_cam["transporte"] in transportes_llamados:
+                if nuevo_cam["remision"] in transportes_llamados:
+                    # Paso 3 Cambiar a la fuerza el estatus a LLAMADO antes de que lo mostremos
                     nuevo_cam["estatus"] = "LLAMADO"
 
+            # Paso 4 Mostramos la informacion real
             self.datos_totales = nuevos_datos
             self.actualizar_interfaz_vista()
             
@@ -373,9 +444,9 @@ class VentanaBasculaMain(QMainWindow):
         """
         # Actualizamos nuestra "BD" en memoria
         for t_id in lista_transportes:
-            for camion in self.datos_totales:
-                if camion["transporte"] == t_id:
-                    camion["estatus"] = "LLAMADO"
+            for x_remision in self.datos_totales:
+                if x_remision["transporte"] == t_id:
+                    x_remision["estatus"] = "LLAMADO"
                     # Aquí también guardaríamos en el archivo JSON/Excel compartido
                     # para que gui_tablero.py lo lea.
         return True
