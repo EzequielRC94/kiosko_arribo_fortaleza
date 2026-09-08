@@ -39,17 +39,16 @@ class VentanaBasculaMain(QMainWindow):
             self.vistas_config = [
                 {"nombre": "GRANEL - LÍNEA 1 (MX47)",   "gpo": "GRANEL",   "ce": "MX47", "filtro_mat": ""},
                 {"nombre": "GRANEL - LÍNEA 2 (MX57)",   "gpo": "GRANEL",   "ce": "MX57", "filtro_mat": ""},
-                {"nombre": "ENVASADO - FORTALEZA (L2)","gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "FORTALEZA"},
-                {"nombre": "ENVASADO - MORTEROS (L2)", "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "MORTERO"},
-                  {"nombre": "ENVASADO - BIG BAG (L2)", "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "BIG BAG"},
-                {"nombre": "ENVASADO - MAGNOS (L1)",   "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "MAGNO"},
-                {"nombre": "ENVASADO - BLANCOS (L1)",  "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "BCO"},
+                {"nombre": "ENVASADO - FORTALEZA (L2)", "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "FORTALEZA"},
+                {"nombre": "ENVASADO - MORTEROS (L2)",  "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "MORTERO"},
+                {"nombre": "ENVASADO - BIG BAG (L2)",   "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "BIG BAG"},
+                {"nombre": "ENVASADO - MAGNOS (L1)",    "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "MAGNO"},
+                {"nombre": "ENVASADO - BLANCOS (L1)",   "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "BCO"},
             ]
         else:
             self.vistas_config = [
                 {"nombre": "GRANEL",  "gpo": "GRANEL",   "ce": "", "filtro_mat": ""},
                 {"nombre": "ENVASADO","gpo": "ENVASADO", "ce": "", "filtro_mat": ""},
-
             ]
 
         
@@ -152,7 +151,7 @@ class VentanaBasculaMain(QMainWindow):
         # ---------------------------------------------------------
         # INICIALIZACIÓN
         # ---------------------------------------------------------
-        # ¡Magia! Ya no calculas la ruta aquí, solo la extraes de la sesión
+        # Extraes de la sesión
         self.ruta_base_drive = self.session_data.ruta_base_drive
 
         # 2. Instanciar el manager de arribos

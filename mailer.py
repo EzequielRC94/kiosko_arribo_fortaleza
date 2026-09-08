@@ -7,7 +7,7 @@ class EmailManager:
         # Configuramos destinatarios fijos
         self.destinatario = "msaavedra@cementosfortaleza.com; desanchezs@cementosfortaleza.com; embarques@elementia.com"
         self.copia = "aramirezc@cementosfortaleza.com"
-        self.asunto_base = "PRUEBAS: arribo en kiosko"
+        self.asunto_base = f"PRUEBAS: arribo en kiosko"
 
     def enviar_aviso_arribo(self, session: SessionData):
         """
@@ -20,13 +20,14 @@ class EmailManager:
             mail.To = self.destinatario
             mail.CC = self.copia
 
-            subject_mail = mail.Subject = f"{self.asunto_base} - {session.ticket_id}"
+            subject_mail = mail.Subject = f"{self.asunto_base} {session.planta_gui_nombre} - {session.ticket_id}"
             if session.origen_datos == "C: Contingencia":
                 mail.subject = f"Contingencia: {session.folio_contingencia} {subject_mail}"
             else: 
                 mail.subject = subject_mail
 
-            
+             # Recuperamos datos globales seguros
+            transporte = getattr(session, "transporte_sap", "PENDIENTE")
 
             # Construimos el cuerpo en HTML
             # Se agrega 'white-space: nowrap' para evitar que las columnas colapsen y se deformen
@@ -41,7 +42,7 @@ class EmailManager:
             </style>
             </head>
             <body>
-            <h3>🚀 Aviso de Nuevo Arribo (Kiosko)</h3>
+            <h3>🚀 Aviso de Nuevo Arribo en Kiosko  {session.planta_gui_nombre} {transporte}</h3>
             <p>Se ha registrado un nuevo transporte en el sistema.</p>
             
             <div style="overflow-x:auto;">
@@ -77,7 +78,6 @@ class EmailManager:
             """
 
             # Recuperamos datos globales seguros
-            transporte = getattr(session, "transporte_sap", "PENDIENTE")
             fch_arribo = session.inicio_arribo.strftime("%Y-%m-%d %H:%M") if session.inicio_arribo else ""
             fch_cita = getattr(session, "fch_cita_carga", "")
             
@@ -97,7 +97,7 @@ class EmailManager:
                         <td>{session.modalidad}</td>
                         <td>{mat.get('gpo_material', '')}</td>
                         <td>{mat.get('peso_ton', 0)}</td>
-                        <td>{mat.get('material_denominacion', '')}</td>
+                        <td>{mat.get('desc_nom_corto', '')}</td>
                         <td>{mat.get('material', '')}</td>
                         <td>{session.operador}</td>
                         <td>{session.placa}</td>

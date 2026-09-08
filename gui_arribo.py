@@ -394,7 +394,7 @@ class Ventana3_Verificacion(QWidget):
             "F4 - PLANA FULL", "F5 - TOLVITA", "F7 - TOLVA FULL"
         ])
         self.cmb_clase_expedicion.setMinimumWidth(250)
-        self.cmb_clase_expedicion.setFont(QFont("Arial", 12))
+        self.cmb_clase_expedicion.setFont(QFont("Arial", 12, ))
         
         layout_expedicion.addWidget(lbl_tipo)
         layout_expedicion.addWidget(self.cmb_clase_expedicion)
@@ -407,8 +407,23 @@ class Ventana3_Verificacion(QWidget):
         columnas = ["Remisión", "Material", "Ton"] 
         self.tabla_materiales.setColumnCount(len(columnas))
         self.tabla_materiales.setHorizontalHeaderLabels(columnas)
-        self.tabla_materiales.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: #008080; color: white; font-weight: bold; border: 1px solid white; }")
+        
+        # --- NUEVO: Aumentar el tamaño de la letra para el contenido (Filas) ---
+        fuente_tabla = QFont("Arial", 18)
+        self.tabla_materiales.setFont(fuente_tabla)
+        
+        # --- ACTUALIZADO: Aumentar tamaño de letra y CENTRAR texto en el encabezado ---
+        self.tabla_materiales.horizontalHeader().setStyleSheet(
+            "QHeaderView::section { background-color: #008080; color: white; font-weight: bold; font-size: 18px; border: 1px solid white; text-align: center; }"
+        )
+        
+        # --- ACTUALIZADO: Ajustar columnas al ancho de su texto ---
         self.tabla_materiales.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        
+        # TRUCO PRO: Como las columnas se ajustan al texto, puede quedar espacio en blanco a la derecha. 
+        # Esto estira SOLO la última columna ("Ton") para rellenar el hueco visual de la ventana.
+        #self.tabla_materiales.horizontalHeader().setStretchLastSection(True)
+        
         layout.addWidget(self.tabla_materiales)
 
         # 3. Botones de Acción (Fila Inferior)
@@ -520,9 +535,20 @@ class Ventana3_Verificacion(QWidget):
                 row_pos = self.tabla_materiales.rowCount()
                 self.tabla_materiales.insertRow(row_pos)
                 
-                self.tabla_materiales.setItem(row_pos, 0, QTableWidgetItem(remision_id))
-                self.tabla_materiales.setItem(row_pos, 1, QTableWidgetItem(material.get("material_denominacion", "")))
-                self.tabla_materiales.setItem(row_pos, 2, QTableWidgetItem(f"{material.get('peso_ton', 0):,.2f}"))
+                # 1. Creamos los objetos de las celdas (Items)
+                item_remision = QTableWidgetItem(remision_id)
+                item_material = QTableWidgetItem(material.get("material_denominacion", ""))
+                item_peso = QTableWidgetItem(f"{material.get('peso_ton', 0):,.2f}")
+                
+                # 2. Aplicamos la alineación centrada a cada celda
+                item_remision.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item_material.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item_peso.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                
+                # 3. Insertamos las celdas en la tabla
+                self.tabla_materiales.setItem(row_pos, 0, item_remision)
+                self.tabla_materiales.setItem(row_pos, 1, item_material)
+                self.tabla_materiales.setItem(row_pos, 2, item_peso)
 
 class navegar_a_v_final(QWidget):
     """Ventana final de procesamiento: Muestra estado de espera/resultado."""
@@ -906,7 +932,7 @@ class AppWindow(QMainWindow):
                 # CIERRE EXITOSO (SIMULADO HASTA TENER WS)
                 self.session_data.estatus_arribo_mensaje = "Proceso Web Service exitoso"
                 self.session_data.estatus_arribo_ultimo_paso = "OK"
-                mensaje_usuario = f"¡ARRIBO EXITOSO (WS)!\n Turno: {self.session_data.ticket_id}"
+                mensaje_usuario = f"¡ARRIBO CORRECTO (WS)!\n Turno: {self.session_data.ticket_id}"
                 color_final = "green"
 
             elif origen == "C: Contingencia":
@@ -934,7 +960,8 @@ class AppWindow(QMainWindow):
                 # MODO B: ROBOT SAP (DEFAULT / ACTUAL)
                 # ----------------------------------------------------------------
                 self.session_data.registrar_paso("SAP: Inicio Kiosko", "Registrando en Kiosko")
-                self.v4.set_estado("Creando folio de báscula en SAP...", "blue", "Ejecutando Kiosko", mostrar_boton=False)
+                mensaje_usuario = f"⏳ Creando folio de bascula en sistema"
+                self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando Kiosko", mostrar_boton=False)
                 QApplication.processEvents()
 
                 resultado_kiosko = self.sap_manager.crear_folio_bascula(
@@ -945,13 +972,16 @@ class AppWindow(QMainWindow):
                     placas=placas,
                     modalidad=modalidad
                 )
-                self.session_data.registrar_paso("SAP: Folio Creado", f"Kiosko: {resultado_kiosko}")
+                mensaje_usuario = "✅ Folio de bascula creado"
+                self.session_data.registrar_paso(f"SAP: Folio Creado", f"Kiosko: {resultado_kiosko}")
+                self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando Kiosko", mostrar_boton=False)
 
                 # ⏳ PREVENCIÓN DEL ERROR COM (-2147483638): Dormimos el script medio segundo
                 time.sleep(0.5)
 
                 self.session_data.registrar_paso("SAP: Inicio Transporte", "Creando en VT01N")
-                self.v4.set_estado("Creando transporte en SAP (VT01N)...", "blue", "Ejecutando VT01N", mostrar_boton=False)
+                mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n⏳ Creando transporte en sistema"
+                self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando VT01N", mostrar_boton=False)
                 QApplication.processEvents()
 
                 no_transporte = self.sap_manager.crear_transporte(
@@ -968,21 +998,28 @@ class AppWindow(QMainWindow):
                 if no_transporte and str(no_transporte).strip().startswith("48"):
                     self.session_data.transporte_sap = str(no_transporte).strip()
                     self.session_data.registrar_paso("SAP: Transporte Creado", f"Transporte: {self.session_data.transporte_sap}")
+                    mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n✅ Transporte creado"
                 else:
+                    mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n❌ Transporte error"
                     raise Exception(f"Transporte inválido generado por SAP: {no_transporte}")
+
 
                 # CIERRE EXITOSO NORMAL
                 self.session_data.estatus_arribo_mensaje = "Proceso SAP exitoso"
                 self.session_data.estatus_arribo_ultimo_paso = "OK"
-                mensaje_usuario = f"¡ARRIBO EXITOSO!\n Turno: {self.session_data.ticket_id}"
+                mensaje_usuario = mensaje_usuario + f"\n ✅ ¡ARRIBO CORRECTO!\n Turno: {self.session_data.ticket_id}"
                 color_final = "green"
+                # eZEQUIEL DEL FUTURO, agregar aqui el nuevo metodo para crear el ticket_id como:
+                # T = Tula
+                # L = Lunes
+                # 1545 = Hora + Minuto
 
         finally:
             # ================================================================
             # BLOQUE FINALLY: SIEMPRE SE EJECUTA (ÉXITO O ERROR)
             # ================================================================
             self.session_data.fin_arribo = datetime.now()
-            self.v4.set_estado("Guardando registros del sistema...", "blue", "Guardando...", mostrar_boton=False)
+            #self.v4.set_estado("Guardando registros del sistema...", "blue", "Guardando...", mostrar_boton=False)
             QApplication.processEvents()
 
             #print("💾 Guardando bitácora en Excel Histórico...")

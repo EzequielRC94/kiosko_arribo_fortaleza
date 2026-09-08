@@ -183,8 +183,6 @@ class SAPManager:
             #print(f"SAP Estatus Sal Mercancia: {st_transporte}")
             #print(f"SAP Estatus Facturacion: {st_transporte}")
 
-
-            
             # --- DATOS DE FECHAS (CITA DE CARGA) ---
             fch_cita_str = ""
             
@@ -360,6 +358,7 @@ class SAPManager:
                         "almacen": almacen,
                         "peso_ton": cant_mat,
                         "material_denominacion" : material_denominacion,
+                        "material_desc_corto" : info_material.get("desc_nom_corto", material_denominacion),
                         "gpo_material": info_material.get("grupo")
                     })
         
@@ -1215,7 +1214,7 @@ class SAPManager:
                 session.findById("wnd[0]/usr/ctxtSO_TRSTA-LOW").text = "C"
                 session.findById("wnd[0]/usr/ctxtSO_TRSTA-HIGH").text = ""
 
-            # --- 3. FILTRO: ESTATUS SALIDA DE MERCANCÍA (SO_WBSTK) ---
+            # --- 3. FILTRO: ESTATUS SALIDA DE MERCANCÍA (SO_WBSTK) --- DIF_C
             session.findById("wnd[0]/usr/ctxtSO_WBSTK-LOW").text = ""
             session.findById("wnd[0]/usr/btn%_SO_WBSTK_%_APP_%-VALU_PUSH").press()
             session.findById("wnd[1]/usr/tabsTAB_STRIP/tabpSIVA/ssubSCREEN_HEADER:SAPLALDB:3010/tblSAPLALDBSINGLE/ctxtRSCSEL_255-SLOW_I[1,0]").text = "C"
