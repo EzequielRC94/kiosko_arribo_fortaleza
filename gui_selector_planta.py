@@ -26,7 +26,10 @@ class DialogoSeleccionPlanta(QDialog):
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_titulo)
 
-        for nombre_planta, codigos in CATALOGO_PLANTAS.items():
+        for nombre_planta, info in CATALOGO_PLANTAS.items():
+            codigos = info["codigos"]
+            letra = info["letra"]
+            
             btn = QPushButton(nombre_planta)
             btn.setFont(QFont("Arial", 14))
             btn.setFixedHeight(60)
@@ -34,15 +37,17 @@ class DialogoSeleccionPlanta(QDialog):
                 QPushButton { background-color: #008080; color: white; border-radius: 8px; }
                 QPushButton:hover { background-color: #006666; }
             """)
-            btn.clicked.connect(lambda checked, n=nombre_planta, c=codigos: self.confirmar_seleccion(n, c))
+            # Pasamos nombre (n), códigos (c) y letra (l) en el lambda
+            btn.clicked.connect(lambda checked, n=nombre_planta, c=codigos, l=letra: self.confirmar_seleccion(n, c, l))
             layout.addWidget(btn)
 
-    def confirmar_seleccion(self, nombre, codigos):
+    def confirmar_seleccion(self, nombre, codigos, letra):
         """Prepara el SessionData y calcula la ruta base antes de cerrar el diálogo."""
         # 1. Crear el SessionData centralizado
         session_data = SessionData()
         session_data.planta_gui_nombre = nombre
         session_data.planta_gui_codigos = codigos
+        session_data.planta_gui_letra = letra #Letra identificadora de la planta
         
         # 2. Calcular la ruta dinámica
         user_profile = os.path.expanduser("~")

@@ -3,12 +3,14 @@
 # ==============================================================================
 # CATÁLOGO DE PLANTAS Y CENTROS DE EXPEDICIÓN
 # ==============================================================================
+# catalogos.py
+
 CATALOGO_PLANTAS = {
-    "Planta Tula":      ["MX47", "MX57"],
-    "Planta Palmar":    ["MX16"],
-    "Planta Progreso":  ["MX76"],
-    "Planta Vito":      ["MX46"],
-    "CEDIS GDL":        ["MX83"]
+    "Planta Tula":     {"codigos": ["MX47", "MX57"], "letra": "T"},
+    "Planta Palmar":   {"codigos": ["MX16"],         "letra": "P"},
+    "Planta Progreso": {"codigos": ["MX76"],         "letra": "M"},
+    "Planta Vito":     {"codigos": ["MX46"],         "letra": "V"},
+    "CEDIS GDL":       {"codigos": ["MX83"],         "letra": "G"}
 }
 
 # ==============================================================================

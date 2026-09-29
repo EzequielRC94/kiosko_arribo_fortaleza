@@ -40,12 +40,15 @@ class SessionData:
         self.inicio_arribo = datetime.datetime.now() # Hora en que pulsó "Nuevo Arribo"
         self.fin_arribo = None                  # Se llena al Finalizar o Cancelar
         self.estatus_arribo_mensaje: str = ""   # "Exito", "Cancelado por usuario", "Error SAP..."
-        self.planta_gui_nombre: str = ""
-        self.planta_gui_codigos: list = []
         self.ruta_base_drive: str
-
         self.folio_contingencia: str = ""     # Folio de contingencia incremental
         self.estatus_contingencia: str = ""     # "N/A", "PENDIENTE", "CERRADO"
+        
+        #datos de la planta (no se reinician en la session)
+        self.planta_gui_nombre: str = ""
+        self.planta_gui_codigos: list = []
+        self.planta_gui_letra: str = ""
+        
 
         # Variables de compatibilidad (para mostrar Log resumen)
         self.estatus_arribo_ultimo_paso: str = "Inicio"  # Rastro del operador (V0, V1, V2...)

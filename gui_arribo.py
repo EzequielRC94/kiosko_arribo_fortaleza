@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timedelta
 import random # Para simular el resultado de "Arribo Correcto/Incorrecto"
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QComboBox, QHeaderView, QMessageBox, QStackedWidget, QFrame, QDialog
 )
@@ -18,7 +18,7 @@ from manager_sap import (SAPManager, SAPError)
 from session_data import SessionData
 from manager_logs import LogManager
 from manager_cloudfort import CloudFortManager
-from mailer import EmailManager            
+from mailer import EmailManager
 from manager_arribos import ArribosManager
 from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
 
@@ -407,18 +407,30 @@ class Ventana3_Verificacion(QWidget):
         columnas = ["Remisión", "Material", "Ton"] 
         self.tabla_materiales.setColumnCount(len(columnas))
         self.tabla_materiales.setHorizontalHeaderLabels(columnas)
-        
-        # --- NUEVO: Aumentar el tamaño de la letra para el contenido (Filas) ---
+
+        # Aumentar el tamaño de la letra para el contenido (Filas) ---
         fuente_tabla = QFont("Arial", 18)
         self.tabla_materiales.setFont(fuente_tabla)
         
-        # --- ACTUALIZADO: Aumentar tamaño de letra y CENTRAR texto en el encabezado ---
+        # --- Aumentar tamaño de letra y CENTRAR texto en el encabezado ---
         self.tabla_materiales.horizontalHeader().setStyleSheet(
             "QHeaderView::section { background-color: #008080; color: white; font-weight: bold; font-size: 18px; border: 1px solid white; text-align: center; }"
         )
+        self.tabla_materiales.setStyleSheet("QTableWidget::item { padding-left: 15px; padding-right: 15px; }")
+        # --- Ajustar columnas al ancho de su texto ---
+        #self.tabla_materiales.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # --- AJUSTE INDIVIDUAL DE COLUMNAS ---
+        header = self.tabla_materiales.horizontalHeader()
         
-        # --- ACTUALIZADO: Ajustar columnas al ancho de su texto ---
-        self.tabla_materiales.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Columna 1 (Índice 0: "Remisión") -> Autoajustable al texto
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        
+        # Columna 2 (Índice 1: "Material") -> Ocupa todo el espacio restante de la pantalla
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        
+        # Columna 3 (Índice 2: "Ton") -> Autoajustable al texto
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+
         
         # TRUCO PRO: Como las columnas se ajustan al texto, puede quedar espacio en blanco a la derecha. 
         # Esto estira SOLO la última columna ("Ton") para rellenar el hueco visual de la ventana.
@@ -470,7 +482,6 @@ class Ventana3_Verificacion(QWidget):
                 background-color: #660000; /* Efecto al hacer clic */
             }
         """)
-        
 
         btn_layout.addWidget(self.btn_finalizar_arribo)
         btn_layout.addWidget(self.btn_add_remision)
@@ -1009,10 +1020,6 @@ class AppWindow(QMainWindow):
                 self.session_data.estatus_arribo_ultimo_paso = "OK"
                 mensaje_usuario = mensaje_usuario + f"\n ✅ ¡ARRIBO CORRECTO!\n Turno: {self.session_data.ticket_id}"
                 color_final = "green"
-                # eZEQUIEL DEL FUTURO, agregar aqui el nuevo metodo para crear el ticket_id como:
-                # T = Tula
-                # L = Lunes
-                # 1545 = Hora + Minuto
 
         finally:
             # ================================================================
@@ -1125,7 +1132,7 @@ class AppWindow(QMainWindow):
             )
       
         # ====================================================================
-        # 2. PROCESAMIENTO DE FECHA Y GENERACIÓN DE TICKET
+        # 2. PROCESAMIENTO DE FECHA Y GENERACIÓN DE TICKET (Ej. TL1545)
         # ====================================================================
         
         # A. Convertimos el TEXTO a OBJETO DATETIME para poder calcular
@@ -1134,15 +1141,30 @@ class AppWindow(QMainWindow):
         except ValueError:
             fecha_checklist = datetime.now()
 
-        # B. Generamos el Ticket ID basado en la fecha del checklist
-        ticket_id = fecha_checklist.strftime("%Y%m%d_%H%M%S")
+        # B. Mapeo de Día de la Semana (.weekday(): 0=Lunes ... 6=Domingo)
+        dias_letra = {
+            0: "L",  # Lunes
+            1: "M",  # Martes
+            2: "X",  # Miércoles
+            3: "J",  # Jueves
+            4: "V",  # Viernes
+            5: "S",  # Sábado
+            6: "D"   # Domingo
+        }
         
-        # C. Guardamos en SessionData
+        letra_planta = getattr(self.session_data, "planta_gui_letra", "X") or "X"
+        letra_dia = dias_letra.get(fecha_checklist.weekday(), "X")
+        hora_minuto = fecha_checklist.strftime("%H%M")
+
+        # C. Ensamblamos el nuevo Ticket ID corto (Ej: T + L + 1545 = TL-1545)
+        ticket_id = f"{letra_planta}{letra_dia}-{hora_minuto}"
+        
+        # D. Guardamos en SessionData y en el Log para escuchar al usuario
         self.session_data.ticket_id = ticket_id
         self.session_data.fecha_checklist = respuesta_cloudfort.get("fch_hr_ofertamiento", "")
         self.session_data.tipo_unidad_cloudfort = str(respuesta_cloudfort.get("clase_exp", "F1"))
         
-        self.session_data.registrar_paso("[API CF] Ticket Creado", f"ID: {ticket_id}")
+        self.session_data.registrar_paso("[API CF] Ticket Creado", f"Turno: {ticket_id} (Ofertamiento: {hora_minuto})")
 
         # ====================================================================
         # 3. CÁLCULO DE TIEMPO (AHORA - OFERTAMIENTO) Para determinar arribo válido
@@ -1236,6 +1258,8 @@ class AppWindow(QMainWindow):
             """
             Director de orquesta. Busca datos (Plan A, B, C) y luego evalúa reglas de negocio.
             """
+
+
             # =================================================================
             # FUNCIONES INTERNAS (PLANES)
             # =================================================================
@@ -1287,6 +1311,41 @@ class AppWindow(QMainWindow):
                 #print("========================================================\n")
                 
                 return resultado_contingencia """
+
+
+            # =================================================================
+            # 0. VALIDACIÓN ANTI-DUPLICADOS EN LA SESIÓN ACTUAL
+            # =================================================================
+            
+            # Verificamos si el número de remisión ya existe en la lista de diccionarios de la sesión
+            ya_existe = any(
+                str(rem_dict.get("remision", "")).strip() == remision 
+                for rem_dict in self.session_data.remisiones_agregadas
+            )
+
+            if ya_existe:
+                # 1. Escuchar al usuario: Registramos el intento en el historial del log
+                self.session_data.registrar_paso(
+                    "[REMISION] Duplicado", 
+                    f"Intentó ingresar remisión repetida en la misma sesión: {remision}"
+                )
+                
+                # 2. Reactivamos y limpiamos el input (que se bloqueó al llegar a 10 dígitos)
+                self.v1.limpiar()
+                
+                # 3. Avisamos visualmente al operador sin destruir su sesión
+                QMessageBox.warning(
+                    self, 
+                    "Remisión Duplicada", 
+                    f"La remisión {remision} ya fue agregada a este arribo.\n\n"
+                    "Por favor, escanee una remisión diferente o CONTINUE su registro."
+                )
+                
+                # 4. Lo regresamos a la Ventana 3 (Tabla de verificación) para que vea su carga actual
+                self.navegar_a_v3()
+                return
+
+
             # =================================================================
             # 1. INICIO Y EXTRACCIÓN DE DATOS
             # =================================================================
