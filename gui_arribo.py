@@ -20,7 +20,9 @@ from manager_logs import LogManager
 from manager_cloudfort import CloudFortManager
 from mailer import EmailManager
 from manager_arribos import ArribosManager
+from manager_descargas import DescargasManager
 from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
+from _zql_robot import obtener_datos_remision as obtener_datos_remision_robot
 
 # ====================================================================
 # DEFINICIÓN DE VENTANAS (WIDGETS INDIVIDUALES)
@@ -617,16 +619,23 @@ class navegar_a_v_final(QWidget):
 # ====================================================================
 
 class AppWindow(QMainWindow):
+    arribo_completado_signal = pyqtSignal()
     
-    def __init__(self):
+    def __init__(self, session_config: SessionData = None, modo_bascula: bool = False):
         super().__init__()
         
+        self.modo_bascula = modo_bascula
         self.sap_manager = SAPManager()
-        self.session_data = SessionData() 
+        self.session_data = session_config if session_config is not None else SessionData() 
         self.logger = LogManager()
         self.cloudfort_manager = CloudFortManager()
         self.email_manager = EmailManager()   
         self.arribos_manager = ArribosManager()
+        self.manager_descargas = DescargasManager()
+
+        if session_config is not None:
+            self.arribos_manager.configurar_ruta(self.session_data)
+            self.logger.configurar_ruta(self.session_data.ruta_base_drive)
 
         self.setWindowTitle("KIOSKO ARRIBO - Inicio")
         self.setGeometry(100, 100, 1200, 700)
@@ -705,36 +714,40 @@ class AppWindow(QMainWindow):
         # ====================================================================
         # MONITOR DE CONEXION A SAP E INTERNET (PING-PONG)
         # ====================================================================
-        # 💻 KEEP-ALIVE WINDOWS: Evitamos que el Kiosko entre en reposo
-        evitar_bloqueo_windows()
-        self.sap_manager.iniciar_keep_alive(intervalo_minutos=13)
         self.hay_internet = True  # Asumimos que inicia con conexión
-        
-        # --- TEMPORIZADOR PARA PING DE INTERNET ---
-        self.timer_internet = QTimer(self)
-        self.timer_internet.timeout.connect(self._ping_internet)
-        intervalo_ping_minutos = 5
-        tiempo_de_revision_ms = intervalo_ping_minutos * 60 * 1000
-        print(f"🌐 [RED] Internet iniciado. Intervalo: {intervalo_ping_minutos} min")
-        self.timer_internet.start(tiempo_de_revision_ms)
 
+        if not self.modo_bascula:
+            # 💻 KEEP-ALIVE WINDOWS: Evitamos que el Kiosko entre en reposo
+            evitar_bloqueo_windows()
+            self.sap_manager.iniciar_keep_alive(intervalo_minutos=13)
+            
+            # --- TEMPORIZADOR PARA PING DE INTERNET ---
+            self.timer_internet = QTimer(self)
+            self.timer_internet.timeout.connect(self._ping_internet)
+            intervalo_ping_minutos = 5
+            tiempo_de_revision_ms = intervalo_ping_minutos * 60 * 1000
+            print(f"🌐 [RED] Internet iniciado. Intervalo: {intervalo_ping_minutos} min")
+            self.timer_internet.start(tiempo_de_revision_ms)
 
-        # --- TEMPORIZADOR PARA ROBOT DESCARGA ZSDMX389 ---
-        self.timer_robot_sap = QTimer(self)
-        self.timer_robot_sap.timeout.connect(self._ejecutar_robot_zsdmx)
-        
-        intervalo_robot_minutos = 21  # minutos
-        tiempo_robot_ms = intervalo_robot_minutos * 60 * 1000
-        print(f"🤖 [SAP] Robot ZSDMX389 iniciado. Intervalo: {intervalo_robot_minutos} min")
-        self.timer_robot_sap.start(tiempo_robot_ms)
+            # --- TEMPORIZADOR PARA ROBOT DESCARGA ZSDMX389 ---
+            self.timer_robot_sap = QTimer(self)
+            self.timer_robot_sap.timeout.connect(self._ejecutar_robot_zsdmx)
+            
+            intervalo_robot_minutos = 10  # minutos
+            tiempo_robot_ms = intervalo_robot_minutos * 60 * 1000
+            print(f"🤖 [SAP] Robot ZSDMX389 iniciado. Intervalo: {intervalo_robot_minutos} min")
+            self.timer_robot_sap.start(tiempo_robot_ms)
 
-        # Conexión SAP Keep-Alive SAP 
-        self.sap_manager.emitter.keep_alive_signal.connect(self._actualizar_estado_sap)
+            # Conexión SAP Keep-Alive SAP 
+            self.sap_manager.emitter.keep_alive_signal.connect(self._actualizar_estado_sap)
 
         # --- TEMPORIZADOR DE AUTO-REINICIO ---
         self.timer_autoreset = QTimer(self)
         self.timer_autoreset.setSingleShot(True)
         self.timer_autoreset.timeout.connect(self.navegar_a_v0)
+
+        if self.modo_bascula:
+            self.navegar_a_v1()
 
     def _setup_views(self):
         """Inicializa las 5 vistas (0 a 4) y las añade al QStackedWidget."""
@@ -790,26 +803,43 @@ class AppWindow(QMainWindow):
 
     def _ejecutar_robot_zsdmx(self):
         """
-        Función disparada cada 20 minutos. Lanza el robot pasando la ruta global
+        Función disparada cada 21 minutos. Lanza el robot pasando la ruta global
         para mantener actualizada la contingencia local (Plan C) SOLO PENDIENTES.
         """
         if self.hay_internet and self.sap_manager.validar_conexion():
             print(f"[{time.strftime('%H:%M:%S')}]⏳ [ROBOT] Iniciando actualización programada de ZSDMX389 (Pendientes)...")
             try:
-                # Le pasamos el nuevo parámetro 'tipo_descarga'
-                self.sap_manager.zsdmx389_robot(self.session_data.ruta_base_drive, tipo_descarga="pendientes")
+                # Obtenemos el diccionario con el estatus y mensaje
+                resultado = self.manager_descargas.zsdmx389_robot(self.session_data.ruta_base_drive, tipo_descarga="pendientes")
+                estatus_descarga = resultado.get("estatus")
+                #print(f"gui arribo: estatus {estatus_descarga}")
+                
+                # Evaluamos la llave "estatus"
+                if estatus_descarga:
+                    msg = resultado.get("msg", "")
+                    self.mostrar_mensaje_estado(msg=msg, es_correcto=True)
+                    print(f"✅ [{time.strftime('%H:%M:%S')}] Descarga exitosa: {msg}")
+                else:
+                    msg_error = resultado.get("msg", "Error desconocido")
+                    print(f"⚠️ [{time.strftime('%H:%M:%S')}] El robot reportó un fallo: {msg_error}")
+                    self.mostrar_mensaje_estado(msg=msg_error, es_correcto=False)
+                    
             except Exception as e:
-                print(f"⚠️ [{time.strftime('%H:%M:%S')}] Error en ejecución automática del robot ZSDMX389: {e}")
+                msg_critico = f"Error crítico en orquestador ZSDMX389: {e}"
+                print(f"⚠️ [{time.strftime('%H:%M:%S')}] {msg_critico}")
+                self.mostrar_mensaje_estado(msg=msg_critico, es_correcto=False)
         else:
             print(f"⚠️ [{time.strftime('%H:%M:%S')}] [ROBOT] Descarga de contingencia omitida (Sin internet o sin SAP).")
-
 
     # --- Métodos de Navegación ---
 
     def navegar_a_v0(self):
-        """Navega a V0 y reinicia la sesión (nuevo arribo)."""
+        """Navega a V0 y reinicia la sesión (o cierra la ventana si está en modo báscula)."""
         self.session_data.reset_session()
         self.v1.limpiar()
+        if self.modo_bascula:
+            self.close()
+            return
         self.stacked_widget.setCurrentIndex(0)
         self.setWindowTitle("KIOSKO ARRIBO - Inicio")
 
@@ -1039,6 +1069,7 @@ class AppWindow(QMainWindow):
                 #print("📡 Registrando en Tablero de Arribos...")
                 try:
                     self.arribos_manager.registrar_nuevo_arribo(self.session_data)
+                    self.arribos_manager.agregar_a_zsdmx389_local(self.session_data, tipo_archivo="en_proceso")
                 except Exception as e_arribos:
                     print(f"⚠️ Error al registrar en Arribos: {e_arribos}")
 
@@ -1048,6 +1079,8 @@ class AppWindow(QMainWindow):
                 except Exception as e_mail:
                     print(f"⚠️ Error envío correo (no crítico): {e_mail}")
 
+                self.arribo_completado_signal.emit()
+
             # ACTUALIZACIÓN VISUAL FINAL
             self.v4.set_estado(
                 mensaje=mensaje_usuario, 
@@ -1056,8 +1089,12 @@ class AppWindow(QMainWindow):
                 mostrar_boton=True
             )
 
-            print("⏳ Iniciando temporizador de reinicio automático (3 min)...")
-            self.timer_autoreset.start(180000)
+            if self.modo_bascula and self.session_data.estatus_arribo_ultimo_paso == "OK":
+                print("⏳ Modo Báscula: cerrando ventana de arribo en 3 seg...")
+                self.timer_autoreset.start(3000)
+            else:
+                print("⏳ Iniciando temporizador de reinicio automático (3 min)...")
+                self.timer_autoreset.start(180000)
             
 
     # --- Lógica de Procesamiento ---
@@ -1256,155 +1293,63 @@ class AppWindow(QMainWindow):
             
     def obtener_datos_remision(self, remision: str):
             """
-            Director de orquesta. Busca datos (Plan A, B, C) y luego evalúa reglas de negocio.
+            Director de orquesta en la GUI.
+            0. Valida anti-duplicados en la sesión actual.
+            1. Llama a obtener_datos_remision_robot (Plan A, B, C) para extraer el diccionario de datos.
+            2. Evalúa las reglas de negocio y decide las acciones a tomar en la interfaz y sesión.
             """
-
-
-            # =================================================================
-            # FUNCIONES INTERNAS (PLANES)
-            # =================================================================
-            def _metodo_a_ws(rem: str) -> dict:
-                return self.cloudfort_manager.obtener_datos_remision(rem) 
-
-            def _metodo_b_robot(rem: str) -> dict:
-                return self.sap_manager.extraer_datos_remision(rem)
-
-            
-            def _metodo_c_excel(rem: str) -> dict:
-                # Ahora simplemente llamamos a nuestro Manager parametrizado
-                resultado_contingencia = self.arribos_manager.leer_zsdmx389_local(
-                    ruta_base_drive=self.session_data.ruta_base_drive, 
-                    rem=rem, 
-                    tipo_archivo="pendientes"
-                )
-                return resultado_contingencia
-
-            """
-                #import json # import solo para ver el json en consola
-
-                # Asignamos el diccionario a una variable temporal
-                resultado_contingencia = {
-                    "remision": rem_limpia,
-                    "cliente": str(row_cabecera.get("Nombre Cliente", "")).strip(),
-                    "cliente_num": str(row_cabecera.get("Cliente", "")).strip(),
-                    "destinatario_nombre": str(row_cabecera.get("Nombre Destinatario", "")).strip(),
-                    "destinatario_num": str(row_cabecera.get("Destinatar", "")).strip(),
-
-                    "fch_cita_carga": str(row_cabecera.get("Destinatar", "")).strip(),
-
-                    "operador": str(row_cabecera.get("Número de carta de p", "")).strip(), 
-                    "placa": str(row_cabecera.get("Número de", "")).strip(),
-                    "poblacion": str(row_cabecera.get("Población", "")).strip(),
-                    "ruta": str(row_cabecera.get("Ruta", "")).strip(),
-                    "modalidad": str(row_cabecera.get("Pto Descar", "")).strip().upper(),
-                    "clase_expedicion": str(row_cabecera.get("Ex", "")).strip(), 
-                    "clase_entrega": str(row_cabecera.get("Clase de e", "")).strip(), 
-                    "st_transporte": "A",
-                    "st_salida_merc": "A",
-                    "st_factura": "A",
-                    "materiales": materiales_lista
-                }
-                
-                # 🕵️‍♂️ IMPRIMIR EL JSON FORMATEADO EN CONSOLA
-                #print(f"\n📦 === DEBUG JSON CONTINGENCIA (Remisión: {rem_limpia}) ===")
-                #print(json.dumps(resultado_contingencia, indent=4, ensure_ascii=False))
-                #print("========================================================\n")
-                
-                return resultado_contingencia """
-
-
             # =================================================================
             # 0. VALIDACIÓN ANTI-DUPLICADOS EN LA SESIÓN ACTUAL
             # =================================================================
-            
-            # Verificamos si el número de remisión ya existe en la lista de diccionarios de la sesión
             ya_existe = any(
                 str(rem_dict.get("remision", "")).strip() == remision 
                 for rem_dict in self.session_data.remisiones_agregadas
             )
 
             if ya_existe:
-                # 1. Escuchar al usuario: Registramos el intento en el historial del log
                 self.session_data.registrar_paso(
                     "[REMISION] Duplicado", 
                     f"Intentó ingresar remisión repetida en la misma sesión: {remision}"
                 )
-                
-                # 2. Reactivamos y limpiamos el input (que se bloqueó al llegar a 10 dígitos)
                 self.v1.limpiar()
-                
-                # 3. Avisamos visualmente al operador sin destruir su sesión
                 QMessageBox.warning(
                     self, 
                     "Remisión Duplicada", 
                     f"La remisión {remision} ya fue agregada a este arribo.\n\n"
                     "Por favor, escanee una remisión diferente o CONTINUE su registro."
                 )
-                
-                # 4. Lo regresamos a la Ventana 3 (Tabla de verificación) para que vea su carga actual
                 self.navegar_a_v3()
                 return
 
-
             # =================================================================
-            # 1. INICIO Y EXTRACCIÓN DE DATOS
+            # 1. EXTRACCIÓN DE DATOS (MÁQUINA EXTRACTORA EN _zql_robot.py)
             # =================================================================
             self.v1.txt_remision.setDisabled(True)
             self.statusBar().showMessage(f"Buscando remisión {remision}...")
-            
-            # NUEVO PARADIGMA DE LOGS: Actor | Acción | Detalle
             self.session_data.registrar_paso("[USUARIO] Ingreso", f"Escaneó remisión: {remision}")
 
-            datos_sap = None
-            origen_datos = ""
-
-            # --- PLAN A: API WEB CLOUDFORT ---
-            try:
-                self.statusBar().showMessage(f"Plan A: Consultando API CloudFort...")
-                datos_sap = _metodo_a_ws(remision)
-                origen_datos = "A: Web Service"
-            except Exception as e_api:
-                self.session_data.registrar_paso("[API CF] Falla", str(e_api))
-
-                # --- PLAN B: ROBOT SAP ---
-                if datos_sap is None:
-                    try:
-                        self.statusBar().showMessage(f"Plan B: Desplegando Robot SAP...")
-                        self.session_data.registrar_paso("[SAP] Inicio Robot", "Buscando en SAP")
-                        datos_sap = _metodo_b_robot(remision) 
-                        origen_datos = "B: Robot SAP"
-
-                    
-                    except SAPError as e_sap:
-                        # ERROR DE NEGOCIO (Ej. "La entrega ya ha sido procesada")
-                        #self.session_data.registrar_paso("[SAP] Inicio Robot", f"Bloqueo de SAP: {str(e_sap)}")
-                        self.v1.txt_remision.setDisabled(False) 
-                        return self.finalizar_con_error(
-                            paso_actual="[SAP] Validación",
-                            mensaje_error=str(e_sap),
-                            titulo_pantalla="MENSAJE DE SAP"
-                        )
-                
-                    except Exception as e_robot:
-                        # FALLA TÉCNICA (SAP Cerrado, Sin internet, Error de código)
-                        self.session_data.registrar_paso("[SAP] Falla Técnica", str(e_robot))
-
-                        # --- PLAN C: EXCEL CONTINGENCIA ---
-                        if datos_sap is None:
-                            try:
-                                self.statusBar().showMessage(f"Plan C: Buscando en Archivo Local Excel...")
-                                self.session_data.registrar_paso("[EXCEL] Inicio", "Buscando en zsdmx389")
-                                datos_sap = self.arribos_manager.leer_zsdmx389_local(
-                                    ruta_base_drive=self.session_data.ruta_base_drive, 
-                                    rem=remision, 
-                                    tipo_archivo="pendientes"
-                                )
-                                origen_datos = "C: Contingencia"
-
-                            except Exception as e_excel:
-                                self.session_data.registrar_paso("[EXCEL] Falla", str(e_excel))
+            resultado_extraccion = obtener_datos_remision_robot(
+                remision=remision,
+                session_data=self.session_data,
+                cloudfort_manager=self.cloudfort_manager,
+                sap_manager=self.sap_manager,
+                arribos_manager=self.arribos_manager,
+                on_status=self.statusBar().showMessage
+            )
 
             self.v1.txt_remision.setDisabled(False) # Reactivamos siempre el campo
+
+            # Si SAP lanzó un bloqueo directo de documento (SAPError)
+            error_sap = resultado_extraccion.get("error_sap", "")
+            if error_sap:
+                return self.finalizar_con_error(
+                    paso_actual="[SAP] Validación",
+                    mensaje_error=error_sap,
+                    titulo_pantalla="MENSAJE DE SAP"
+                )
+
+            datos_sap = resultado_extraccion.get("datos")
+            origen_datos = resultado_extraccion.get("origen", "")
 
             # =================================================================
             # 2. EVALUACIÓN DE REGLAS DE NEGOCIO
@@ -1443,22 +1388,32 @@ class AppWindow(QMainWindow):
                 elif st_salida in errores_criticos:
                     motivo_rechazo = f"Salida de Mercancías ya realizada (Estatus {st_salida})."
                 
-                
                 # ¿PASÓ LAS REGLAS?
                 if motivo_rechazo != "":
-                    # RECHAZADO
-                    #self.session_data.registrar_paso("[SISTEMA] Reglas Negocio", f"Bloqueo: {motivo_rechazo}")
                     return self.finalizar_con_error(
                         paso_actual="[SISTEMA] Reglas Negocio",
                         mensaje_error=motivo_rechazo,
                         titulo_pantalla="ESTATUS DE REMISIÓN"
                     )
                 else:
-                    # APROBADO: Avanzamos a la Ventana 2
+                    # APROBADO
                     self.session_data.registrar_paso("[SISTEMA] Reglas Negocio", "Remisión disponible OK")
-                    # 🟢📝 
-                    self.session_data.agregar_remision(datos_sap)  #--> Aqui mandamos a guardar toda la info de datos_sap
-                    self.navegar_v2_1_validar_op_facecam()
+                    self.session_data.agregar_remision(datos_sap)
+
+                    if self.modo_bascula:
+                        # En modo báscula omitimos validación por cámara y pasamos directo a Ventana3_Verificacion
+                        if not self.session_data.ticket_id:
+                            ahora_dt = datetime.now()
+                            dias_letra = {0: "L", 1: "M", 2: "X", 3: "J", 4: "V", 5: "S", 6: "D"}
+                            letra_planta = getattr(self.session_data, "planta_gui_letra", "X") or "X"
+                            letra_dia = dias_letra.get(ahora_dt.weekday(), "X")
+                            self.session_data.ticket_id = f"{letra_planta}{letra_dia}-{ahora_dt.strftime('%H%M')}"
+                            self.session_data.fecha_checklist = ahora_dt.strftime("%Y-%m-%d %H:%M:%S")
+                        if not self.session_data.tipo_unidad_cloudfort:
+                            self.session_data.tipo_unidad_cloudfort = "F1"
+                        self.navegar_a_v3()
+                    else:
+                        self.navegar_v2_1_validar_op_facecam()
                     
             else:
                 # FRACASO TOTAL EN LA BÚSQUEDA
@@ -1476,11 +1431,40 @@ class AppWindow(QMainWindow):
         self.statusBar().setStyleSheet(f"color: {estilo};")
         self.statusBar().showMessage(f"Estado del Sistema: {time.strftime('%H:%M:%S')} - {mensaje}")
 
+    def mostrar_mensaje_estado(self, msg: str, es_correcto: bool):
+        """
+        Equivalente a 'aplicar_color_estado' de VBA.
+        Muestra texto en la barra inferior (statusBar) con fondo y letra condicional.
+        """
+        if es_correcto:
+            # Estado Válido / Éxito (Fondo Verde Claro, Texto Verde Oscuro)
+            estilo = """
+                QStatusBar { 
+                    background-color: rgb(198, 239, 206); 
+                    color: rgb(0, 97, 0); 
+                    font-weight: bold; 
+                }
+            """
+        else:
+            # Estado Inválido / Error (Fondo Rosa, Texto Rojo Oscuro)
+            estilo = """
+                QStatusBar { 
+                    background-color: rgb(255, 199, 206); 
+                    color: rgb(156, 0, 6); 
+                    font-weight: bold; 
+                }
+            """
+        
+        # Aplicamos el color y mandamos el texto a la pantalla
+        self.statusBar().setStyleSheet(estilo)
+        self.statusBar().showMessage(msg, 10000) # El 10000 indica que el mensaje se borrará solo a los 10 segundos
+    
     def closeEvent(self, event):
-        """Detiene el Keep-Alive al cerrar."""
-        self.sap_manager.detener_keep_alive()
-        restaurar_energia_windows()
-        super().close()
+        """Detiene el Keep-Alive al cerrar (solo si no es ventana satélite de báscula)."""
+        if not self.modo_bascula:
+            self.sap_manager.detener_keep_alive()
+            restaurar_energia_windows()
+        super().closeEvent(event)
 
     def _ping_internet(self):
         """
@@ -1733,14 +1717,7 @@ if __name__ == "__main__":
     session_config = obtener_configuracion_inicial()
     
     if session_config:
-        ventana = AppWindow()
-        
-        # 2. Reemplazar la sesión vacía de la ventana por la configurada
-        ventana.session_data = session_config
-        
-        # 3. Enrutar archivos
-        ventana.arribos_manager.configurar_ruta(ventana.session_data)
-        ventana.logger.configurar_ruta(ventana.session_data.ruta_base_drive)
+        ventana = AppWindow(session_config=session_config)
         
         print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre} {ventana.session_data.planta_gui_codigos}")
         ventana.show()

@@ -192,6 +192,104 @@ class ArribosManager:
         except Exception as e:
             print(f"❌ Error guardando en arribos.xlsx: {e}")
 
+    def agregar_a_zsdmx389_local(self, session_data: SessionData, tipo_archivo: str = "en_proceso") -> bool:
+        """
+        Agrega la(s) remisión(es) y posiciones recién arribadas al archivo CSV más reciente
+        de ZSDMX389 (por defecto 'en_proceso') para que el tablero de Báscula lo refleje de inmediato.
+        """
+        import glob
+
+        ruta_base_drive = getattr(session_data, "ruta_base_drive", "")
+        if not ruta_base_drive:
+            print("⚠️ No se encontró ruta_base_drive en session_data para actualizar ZSDMX389 local.")
+            return False
+
+        ruta_carpeta = os.path.join(ruta_base_drive, "zsdmx389", tipo_archivo)
+        os.makedirs(ruta_carpeta, exist_ok=True)
+
+        archivos = glob.glob(os.path.join(ruta_carpeta, f"ZSDMX389_{tipo_archivo}_*.csv"))
+
+        encabezado_default = [
+            "", "Entrega", "Posición E", "Ce.", "GrM2", "Peso Entre", "Material P",
+            "Descripción Material", "No. Viaje", "Número de", "Número de carta de p",
+            "Nombre Destinatario", "Destinatar", "Nombre Cliente", "Cliente",
+            "Población", "Ruta", "Pto Descar", "Ex", "Clase de e", "Fecha crea.1"
+        ]
+
+        if archivos:
+            archivo_reciente = max(archivos, key=os.path.getmtime)
+        else:
+            fecha_str = datetime.now().strftime("%Y%m%d")
+            archivo_reciente = os.path.join(ruta_carpeta, f"ZSDMX389_{tipo_archivo}_{fecha_str}.csv")
+            with open(archivo_reciente, mode="w", encoding="latin1", errors="replace") as f_init:
+                f_init.write("\n\n\n")
+                f_init.write("\t".join(encabezado_default) + "\n")
+
+        try:
+            with open(archivo_reciente, mode="r", encoding="latin1", errors="replace") as f_read:
+                lineas = f_read.readlines()
+
+            if len(lineas) >= 4:
+                columnas_archivo = [col.strip() for col in lineas[3].rstrip("\r\n").split("\t")]
+            else:
+                columnas_archivo = [col.strip() for col in encabezado_default]
+
+            transporte_real = str(getattr(session_data, "transporte_sap", "")).strip()
+            fch_crea_str = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+            nuevas_lineas = []
+
+            for remision in session_data.remisiones_agregadas:
+                num_remision = str(remision.get("remision", "")).strip()
+                clase_ent = str(remision.get("clase_entrega", session_data.clase_entrega)).strip()
+                materiales = remision.get("materiales", [])
+
+                for mat in materiales:
+                    gpo_mat = str(mat.get("gpo_material", "")).strip().upper()
+                    grm2_val = "F06" if gpo_mat == "ENVASADO" else "F07"
+
+                    mapa_valores = {
+                        "Entrega": num_remision,
+                        "Posición E": str(mat.get("posicion", "10")).strip(),
+                        "Ce.": str(mat.get("cen_exp", "")).strip(),
+                        "GrM2": grm2_val,
+                        "Peso Entre": str(mat.get("peso_ton", 0.0)),
+                        "Material P": str(mat.get("material", "")).strip(),
+                        "Descripción Material": str(mat.get("material_denominacion", "")).strip(),
+                        "No. Viaje": transporte_real,
+                        "Número de": str(session_data.placa).strip(),
+                        "Número de carta de p": str(session_data.operador).strip(),
+                        "Nombre Destinatario": str(session_data.destinatario_nombre).strip(),
+                        "Destinatar": str(session_data.destinatario_num).strip(),
+                        "Nombre Cliente": str(session_data.cliente_nombre).strip(),
+                        "Cliente": str(session_data.cliente_num).strip(),
+                        "Población": str(session_data.poblacion).strip(),
+                        "Ruta": str(session_data.ruta).strip(),
+                        "Pto Descar": str(session_data.modalidad).strip(),
+                        "Ex": str(session_data.clase_expedicion).strip(),
+                        "Clase de e": clase_ent,
+                        "Fecha crea.1": fch_crea_str,
+                    }
+
+                    fila_campos = [mapa_valores.get(col_nombre, "") for col_nombre in columnas_archivo]
+                    nuevas_lineas.append("\t".join(fila_campos))
+
+            if not nuevas_lineas:
+                return False
+
+            necesita_salto = bool(lineas and not lineas[-1].endswith(("\n", "\r")))
+            with open(archivo_reciente, mode="a", encoding="latin1", errors="replace") as f_append:
+                if necesita_salto:
+                    f_append.write("\n")
+                for linea in nuevas_lineas:
+                    f_append.write(linea + "\n")
+
+            print(f"✅ Inyectadas {len(nuevas_lineas)} posición(es) en {os.path.basename(archivo_reciente)}")
+            return True
+
+        except Exception as e:
+            print(f"⚠️ Error al agregar arribo en CSV ZSDMX389 ({tipo_archivo}): {e}")
+            return False
+
     def leer_zsdmx389_local(self, ruta_base_drive: str, rem: str = None, tipo_archivo: str = "pendientes", codigos_planta: list = None) -> list | dict:
         """
         Lee el archivo de contingencia ZSDMX389 local de forma dinámica.

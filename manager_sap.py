@@ -31,6 +31,35 @@ class SAPManager:
         # Inicializar el emisor de señales
         self.emitter = SignalEmitter() 
 
+    def acceder_a_transaccion(self, session, transaccion: str) -> bool:
+        """
+        Intenta ingresar a una transacción de SAP y valida si el usuario tiene permisos.
+        """
+        try:
+            # 1. Ejecutar el comando para ir a la transacción
+            session.findById("wnd[0]/tbar[0]/okcd").text = f"/n {transaccion}"
+            session.findById("wnd[0]").sendVKey(0)
+
+            # 2. Leer la barra de estado (sbar)
+            sap_msg = session.findById("wnd[0]/sbar").text
+            
+            # 3. Validar mensajes de error de Basis/Permisos
+            # En Python usamos una lista para poder agregar más errores fácilmente en el futuro
+            errores_acceso = ["Falta autorización", "La transacción", "No tiene autorización"]
+            
+            if any(error in sap_msg for error in errores_acceso):
+                # Si detecta que no hay permiso, lanzamos un SAPError para que el Kiosko lo atrape
+                raise SAPError(f"Acceso denegado a {transaccion}: {sap_msg}")
+            
+            return True
+            
+        except Exception as e:
+            # Si el error ya es nuestro SAPError controlado, lo dejamos pasar hacia arriba
+            if isinstance(e, SAPError):
+                raise e
+            # Si es un error de conexión, lo empaquetamos
+            raise SAPError(f"Error técnico al intentar abrir {transaccion}: {e}")
+
     def obtener_sesion(self) -> Optional[win32com.client.Dispatch]:
         """
         Intenta conectar con la instancia activa de SAP.
@@ -787,7 +816,7 @@ class SAPManager:
             session.findById("wnd[0]").sendVKey(29) 
             
             try:
-                # AQUI ESTÁ LA CLAVE: Usamos 'centro_a_usar', no el genérico
+                # Usamos 'centro_a_usar', no el genérico
                 session.findById("wnd[1]/usr/ctxtS_VSTEL-LOW").text = centro_a_usar
                 
                 # Número de Entrega (Remisión actual)
@@ -942,8 +971,116 @@ class SAPManager:
 
         #print(F"Datos agregados exitosamente: {modalidad} {operador} {placas} {clase_exp_f}")
 
+    
     # ==============================================================================
-    # 5. IMPRIMIR PICKING (VL02N)
+    # 5. MODIFICAR TRANSPORTE (VT02N) - DINÁMICO POR DICCIONARIO
+    # ==============================================================================
+    def modificar_transporte(self, num_transporte: str, data: dict) -> bool:
+        """
+        Ingresa a la VT02N, modifica los campos recibidos en el diccionario 'data',
+        guarda el transporte, evalúa la respuesta de SAP y devuelve True/False.
+        Ej. data = {"TEXT3": "02 llamado 29/09/2026 12:15:00"}
+        """
+        session = self.obtener_sesion()
+        if not session:
+            raise SAPError("No hay sesión activa en SAP.")
+
+        num_transporte = str(num_transporte).strip()
+        if not num_transporte or num_transporte in ["---", "PENDIENTE", "None", ""]:
+            raise SAPError(f"El transporte '{num_transporte}' no es válido para VT02N.")
+
+        if not data or not isinstance(data, dict):
+            raise SAPError("No se recibieron datos válidos (diccionario vacío) para modificar.")
+
+        def cerrar_popup_si_existe():
+            while session.Children.Count > 1:
+                try:
+                    session.findById("wnd[1]/tbar[0]/btn[0]").press()
+                except:
+                    try:
+                        session.findById("wnd[1]").sendVKey(0)
+                    except:
+                        break
+
+        try:
+            # 1. Entrar a transacción VT02N
+            self.acceder_a_transaccion(session, "VT02N")
+
+            # 2. Ingresar el número de transporte en la pantalla inicial y dar Enter
+            session.findById("wnd[0]/usr/ctxtVTTK-TKNUM").text = num_transporte
+            session.findById("wnd[0]").sendVKey(0)
+
+            # 3. Escuchar a SAP: Validar si el transporte está bloqueado o no existe
+            sap_msg = session.findById("wnd[0]/sbar").text
+            if sap_msg:
+                palabras_bloqueo = ["bloqueado", "actualmente en", "no existe", "archivado", "autorización", "tratamiento"]
+                if any(palabra in sap_msg.lower() for palabra in palabras_bloqueo):
+                    raise SAPError(f"Bloqueo SAP -> {sap_msg}")
+
+            cerrar_popup_si_existe()
+
+            # 4. Modificar datos según parámetros recibidos en el diccionario 'data'
+            # --- C) Pestaña: Datos Adic. (TABS_OV_AI) ---
+            mapa_datos_adic = {
+                "ADD03": "ctxtVTTK-ADD03",
+                "ADD04": "ctxtVTTK-ADD04",
+                "TEXT1": "txtVTTK-TEXT1",
+                "TEXT2": "txtVTTK-TEXT2",
+                "TEXT3": "txtVTTK-TEXT3",
+                "TEXT4": "txtVTTK-TEXT4"
+            }
+
+            # Verificamos si alguna llave del diccionario pertenece a esta pestaña
+            if any(k in data for k in mapa_datos_adic):
+                # Pestaña Datos Adicionales ---
+                session.findById("wnd[0]/usr/tabsHEADER_TABSTRIP2/tabpTABS_OV_AI").select()
+                cerrar_popup_si_existe()
+
+                ruta_adicionales = (
+                    "wnd[0]/usr/tabsHEADER_TABSTRIP2/tabpTABS_OV_AI/"
+                    "ssubG_HEADER_SUBSCREEN2:SAPMV56A:1030/"
+                )
+
+                # Iteramos solo sobre las llaves que sí vinieron en 'data'
+                for llave, campo_sap in mapa_datos_adic.items():
+                    if llave in data:
+                        valor_nuevo = str(data[llave]).strip()
+                        session.findById(f"{ruta_adicionales}{campo_sap}").text = valor_nuevo
+                        print(f"✏️ [VT02N] Transporte {num_transporte} -> {llave} = '{valor_nuevo}'")
+
+            # 5. Guardar cambios (Ctrl + S / VKey 11)
+            session.findById("wnd[0]").sendVKey(11)
+            cerrar_popup_si_existe()
+
+            # 6. Evaluar mensaje devuelto en la barra de estado
+            msg_bar = session.findById("wnd[0]/sbar").text.strip()
+            print(f"📡 [SAP sbar VT02N]: '{msg_bar}'")
+
+            # Validamos tu mensaje particular o los mensajes estándar de éxito en VT02N
+            mensajes_exito = [
+                "error: al recuperar información", # Mensaje particular de éxito en tu entorno SAP
+                "se grabó",
+                "se ha grabado",
+                "guardado",
+                "modificado"
+            ]
+
+            if any(exito in msg_bar.lower() for exito in mensajes_exito):
+                self.emitter.keep_alive_signal.emit(f"Transporte {num_transporte} actualizado.", "green")
+                return True
+            else:
+                # Si SAP devuelve otro mensaje inesperado, lo reportamos para escucharlo en el log
+                raise SAPError(f"Respuesta inesperada al guardar {num_transporte}: '{msg_bar}'")
+
+        except SAPError as e:
+            self.emitter.keep_alive_signal.emit(f"Error SAP en VT02N: {e}", "red")
+            raise e
+        except Exception as e:
+            self.emitter.keep_alive_signal.emit("Falla técnica en VT02N", "red")
+            raise SAPError(f"Error técnico modificando transporte {num_transporte}: {e}")
+
+    # ==============================================================================
+    # 6. IMPRIMIR PICKING (VL02N)
     # ==============================================================================
     def imprimir_picking(self, remisiones: list, centro_expedicion: str):
         """
@@ -1172,17 +1309,18 @@ class SAPManager:
     # ==============================================================================
     # MOTOR DE DESCARGAS Y ROBOT ORQUESTADOR ZSDMX389
     # ==============================================================================
-    def zsdmx389_descargar_archivos(self, path_descarga: str, nom_archivo: str, fch_in: str, fch_fn: str, 
-                                  org_vta: str = "0152", can_dis: str = "16", 
-                                  filtro_transporte: str = "", 
-                                  descargar: bool = True):
+    def zsdmx389_descargar_archivos(self, path_descarga: str, nom_archivo: str, extencion: str = "csv",
+                                    fch_in: str = "", fch_fn: str = "", 
+                                    org_vta: str = "0152", can_dis: str = "16", 
+                                    filtro_transporte: str = "", 
+                                    descargar: bool = True) -> dict: 
         """
-        Motor genérico para ejecutar la transacción ZSDMX389.
+        Motor para ejecutar la transacción ZSDMX389.
         filtro_transporte acepta: 'DIF_C' (Excluir C), 'IGUAL_C' (Solo C), Vacio no toma el filtro.
         """
         session = self.obtener_sesion()
         if not session:
-            raise Exception("No hay sesión abierta en SAP para ejecutar ZSDMX389.")
+            return {"estatus": False, "msg": "No hay sesión abierta en SAP para ejecutar ZSDMX389."}
             
         try:
             # --- 1. NAVEGACIÓN Y PARÁMETROS PRINCIPALES ---
@@ -1194,11 +1332,11 @@ class SAPManager:
                 session.findById("wnd[0]/usr/ctxtPA_VTWEG").text = can_dis
             except:
                 pass
-                
+
+            # opt remisiones 
             session.findById("wnd[0]/usr/radPA_ENTRE").select()
             
             # --- 2. FILTRO: ESTATUS PLANIF. TRANSPORTE (SO_TRSTA) ---
-            # Si el filtro llega vacio entonces no hace nada
             if filtro_transporte == "DIF_C":
                 session.findById("wnd[0]/usr/ctxtSO_TRSTA-LOW").text = ""
                 session.findById("wnd[0]/usr/btn%_SO_TRSTA_%_APP_%-VALU_PUSH").press()
@@ -1246,7 +1384,6 @@ class SAPManager:
                         shell_layout.selectedRows = str(i)
                         shell_layout.clickCurrentCell()
                         layout_encontrado = True
-                        #print(f"✅ Layout /$FZ_PLANEAC encontrado y aplicado (Fila {i}).")
                         break
 
             except Exception as e:
@@ -1259,85 +1396,197 @@ class SAPManager:
                 if session.Children.Count > 1:
                     session.findById("wnd[1]").sendVKey(12) 
             
-            # --- 6. EXPORTAR A CSV ---
+            # --- 6. EXPORTAR ARCHIVO (MODULAR) ---
             if descargar:
-                session.findById("wnd[0]").sendVKey(45) 
-                session.findById("wnd[1]/usr/subSUBSCREEN_STEPLOOP:SAPLSPO5:0150/sub:SAPLSPO5:0150/radSPOPLI-SELFLAG[1,0]").select()
-                session.findById("wnd[1]/tbar[0]/btn[0]").press() 
-                
-                session.findById("wnd[1]/usr/ctxtDY_PATH").text = path_descarga
-                session.findById("wnd[1]/usr/ctxtDY_FILENAME").text = nom_archivo
-                session.findById("wnd[1]/tbar[0]/btn[11]").press() 
-                
-        except Exception as e:
-            print(f"❌ Error interno ejecutando ZSDMX389: {e}")
-            raise Exception(f"Falla en ejecución ZSDMX389: {e}")
+                return self._exportar_archivo_sap(
+                    session=session,
+                    path_descarga=path_descarga,
+                    nom_archivo=nom_archivo,
+                    extension=extencion  # Si corriges el nombre en la firma a 'extension', actualízalo aquí también
+                )
+            else:
+                return {
+                    "estatus": True,
+                    "msg": "No se solicitó descarga"
+                }
 
-    def zsdmx389_robot(self, ruta_base_drive: str, tipo_descarga: str = "ambos") -> dict:
+        except Exception as e:
+            return {
+                "estatus": False,
+                "msg": f"Falla interna ejecutando ZSDMX389: {e}"
+            }
+
+    def zsdmx267_descargar_archivos(self, path_descarga: str, nom_archivo: str, extension: str, 
+                                    fch_in: str, fch_fn: str, lay_out: str = "",
+                                    centro_exp: str = "*", descargar: bool = True) -> dict:
         """
-        Robot Orquestador que recibe la ruta dinámica, crea las subcarpetas 
-        (pendientes / en_proceso) y lanza las descargas selectivas.
-        tipo_descarga acepta: 'pendientes', 'en_proceso', o 'ambos'.
+        Ejecuta la transacción ZSDMX267, filtra por fechas y centro de expedición,
+        asigna el layout indicado y descarga el archivo según la extensión.
         """
-        import os
-        from datetime import datetime
-        
-        # --- 1. RUTAS DINÁMICAS (PLAN C) ---
-        ruta_zsdmx = os.path.join(ruta_base_drive, "zsdmx389")
-        ruta_pendientes = os.path.join(ruta_zsdmx, "pendientes")
-        ruta_en_proceso = os.path.join(ruta_zsdmx, "en_proceso")
-        
-        # Validar y crear estructura de carpetas
-        for carpeta in [ruta_pendientes, ruta_en_proceso]:
-            if not os.path.exists(carpeta):
+        session = self.obtener_sesion()
+        if not session:
+            return {"estatus": False, "msg": "No hay sesión abierta en SAP para ejecutar ZSDMX267."}
+
+        try:
+            # 1. Iniciar Transacción
+            self.acceder_a_transaccion(session, "ZSDMX267")
+
+            # 2. Llenar Filtros
+           
+            session.findById("wnd[0]/usr/ctxtSO_TPLST-LOW").text = centro_exp
+
+            session.findById("wnd[0]/usr/ctxtSO_ERDAT-LOW").text = fch_in
+            session.findById("wnd[0]/usr/ctxtSO_ERDAT-HIGH").text = fch_fn
+            session.findById("wnd[0]/usr/radP_POSREM").select()
+
+            # 3. Ejecutar Reporte (F8)
+            session.findById("wnd[0]").sendVKey(8)
+
+            # 4. Manejo de Popups (ej. Authority check) y validación de datos
+            intentos_popup = 0
+            while session.Children.Count > 1 and intentos_popup < 10:
                 try:
-                    os.makedirs(carpeta, exist_ok=True)
-                except Exception as e:
-                    print(f"⚠️ Error creando carpeta {carpeta}: {e}")
+                    msg_titulo = session.findById("wnd[1]").text
+                    if "Información" in msg_titulo or "Information" in msg_titulo:
+                        session.findById("wnd[1]").sendVKey(0)
+                except Exception:
+                    pass
+                intentos_popup += 1
+
+            mensaje_status = session.findById("wnd[0]/sbar").text.strip().lower()
+            if "no existen datos" in mensaje_status or "no data" in mensaje_status:
+                return {
+                    "estatus": False,
+                    "msg": f"La transacción no arrojó resultados: {mensaje_status}"
+                }
+
+            # 5. Selección Dinámica de Layout
+            if lay_out:
+                try:
+                    session.findById("wnd[0]").sendVKey(33)  # Abrir selector de disposición
+                    shell_layout = session.findById("wnd[1]/usr/cntlGRID/shellcont/shell")
+                    max_filas = shell_layout.RowCount
+                    layout_encontrado = False
+
+                    # Búsqueda por coincidencia en VARIANT o TEXT
+                    for i in range(max_filas):
+                        var_val = shell_layout.GetCellValue(i, "VARIANT").strip()
+                        txt_val = shell_layout.GetCellValue(i, "TEXT").strip()
+
+                        if lay_out.upper() in var_val.upper() or lay_out.upper() in txt_val.upper():
+                            shell_layout.setCurrentCell(i, "TEXT")
+                            shell_layout.selectedRows = str(i)
+                            shell_layout.doubleClickCurrentCell()
+                            layout_encontrado = True
+                            break
+
+                    if not layout_encontrado:
+                        print(f"⚠️ Layout '{lay_out}' no localizado en el catálogo. Continuando con layout actual.")
+                        if session.Children.Count > 1:
+                            session.findById("wnd[1]").sendVKey(12)  # Cancelar / Cerrar popup
+
+                except Exception as e_layout:
+                    print(f"⚠️ Error al configurar layout: {e_layout}")
+                    if session.Children.Count > 1:
+                        session.findById("wnd[1]").sendVKey(12)
+
+            #ajuste optimo de columnas para resolver perdida de datos
+            session.findById("wnd[0]/mbar/menu[3]/menu[1]/menu[0]").select
             
-        fecha_str = datetime.now().strftime("%Y%m%d")
-        nom_pendientes = f"ZSDMX389_pendientes_{fecha_str}.csv" 
-        nom_en_proceso = f"ZSDMX389_en_proceso_{fecha_str}.csv" 
-        
-        # --- 2. RANGO DE FECHAS ---
-        anio_actual = datetime.now().year
-        fch_in = f"01.01.{anio_actual}"
-        fch_fn = f"31.12.{anio_actual}"
-        
-        self.emitter.keep_alive_signal.emit(f"Descargando reportes ZSDMX389 ({tipo_descarga})...", "blue")
-        rutas_generadas = {}
+            # 6. Descarga delegada al método modular
+            if descargar:
+                resultado_descarga = self._exportar_archivo_sap(
+                    session=session,
+                    path_descarga=path_descarga,
+                    nom_archivo=nom_archivo,
+                    extension=extension
+                )
+                return resultado_descarga
+            else:
+                return {"estatus": True, "msg": "Reporte ejecutado sin solicitar descarga."}
+
+        except Exception as e:
+            return {
+                "estatus": False,
+                "msg": f"Falla interna ejecutando ZSDMX267: {e}"
+            }
+
+    def _exportar_archivo_sap(self, session, path_descarga: str, nom_archivo: str, extension: str) -> dict:
+        """
+        Exporta el reporte activo en SAP adaptando el flujo según la extensión:
+        - 'csv' / 'txt': Usa ventana de diálogo estándar SAPLSPO5 (VKey 45 / Fichero Local).
+        - 'xlsx' / 'xls': Usa el menú clásico de exportación a hoja de cálculo.
+        """
+        ext = extension.strip().lower().replace(".", "")
+        nombre_completo = f"{nom_archivo}.{ext}" if not nom_archivo.lower().endswith(f".{ext}") else nom_archivo
+
+        # -------------------------------------------------------------
+        # CASO 1: CSV / TXT (Fichero local con separadores)
+        # -------------------------------------------------------------
+        if ext in ["csv", "txt", "xls"]:
+            #session.findById("wnd[0]").sendVKey(45)  # Acceso directo a Guardar Fichero Local
+            session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[2]").select()
+            # Seleccionar opción de texto con tabuladores / no convertido
+            try:
+                # Opción típica: radSPOPLI-SELFLAG[1,0] suele ser 'Texto con tabuladores'
+                session.findById("wnd[1]/usr/subSUBSCREEN_STEPLOOP:SAPLSPO5:0150/sub:SAPLSPO5:0150/radSPOPLI-SELFLAG[1,0]").select()
+                session.findById("wnd[1]/tbar[0]/btn[0]").press()
+
+            except Exception:
+                # Si entra directamente al cuadro de diálogo o tiene otra estructura de radio buttons
+                if session.Children.Count > 1:
+                    session.findById("wnd[1]").sendVKey(0)
+
+        # -------------------------------------------------------------
+        # CASO 2: XLSX (Open XLSX)
+        # -------------------------------------------------------------
+        elif ext in ["xlsx"]:
+            # Menú: Lista -> Exportar -> Hoja de cálculo
+            try:
+                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[1]").select()
+            except Exception:
+                # Alternativa por atajo en barra si el menú cambia de índice
+                session.findById("wnd[0]/tbar[1]/btn[43]").press()
+
+            # Confirmación de formato si aparece ventana modal intermedia (XML, OpenOffice, MHTML, etc.)
+            if session.Children.Count > 1:
+                # Si aparece selector de formato específico (ej. radio button de OpenOffice o XLSX)
+                try:
+                    if ext == "xlsx":
+                        # Formato XLSX estándar de SAP GUI en versiones recientes
+                        session.findById("wnd[1]/usr/radRB_1").select()
+                    elif ext == "xls":
+                        # Formato clásico MHTML o tabla HTML
+                        session.findById("wnd[1]/usr/radRB_OTHERS").select()
+                except Exception:
+                    pass  # Si no existen esos radio buttons, se acepta la opción default
+                
+                session.findById("wnd[1]").sendVKey(0)
+
+        else:
+            return {
+                "estatus": False,
+                "msg": f"Extensión '{extension}' no soportada. Usa 'xlsx', 'xls' o 'csv'."
+            }
+
+        # -------------------------------------------------------------
+        # PANTALLA DE GUARDADO COMÚN (DY_PATH y DY_FILENAME)
+        # -------------------------------------------------------------
+        session.findById("wnd[1]/usr/ctxtDY_PATH").text = path_descarga
+        session.findById("wnd[1]/usr/ctxtDY_FILENAME").text = nombre_completo
+        # btn[11] corresponde a 'Reemplazar' / btn[0] 'Generar'
         
         try:
-            # --- 3A. DESCARGAR PENDIENTES ---
-            if tipo_descarga in ["pendientes", "ambos"]:
-                self.zsdmx389_descargar_archivos(
-                    path_descarga=ruta_pendientes, 
-                    nom_archivo=nom_pendientes, 
-                    fch_in=fch_in, 
-                    fch_fn=fch_fn, 
-                    filtro_transporte="" # Vacío: Trae todo lo pendiente con o sin transporte
-                )
-                rutas_generadas['pendientes'] = os.path.join(ruta_pendientes, nom_pendientes)
-            
-            # --- 3B. DESCARGAR EN PROCESO ---
-            if tipo_descarga in ["en_proceso", "ambos"]:
-                self.zsdmx389_descargar_archivos(
-                    path_descarga=ruta_en_proceso, 
-                    nom_archivo=nom_en_proceso, 
-                    fch_in=fch_in, 
-                    fch_fn=fch_fn, 
-                    filtro_transporte="IGUAL_C" # Solo C: Trae solo lo que está en proceso
-                )
-                rutas_generadas['en_proceso'] = os.path.join(ruta_en_proceso, nom_en_proceso)
-            
-            self.emitter.keep_alive_signal.emit(f"Archivos ZSDMX389 ({tipo_descarga}) actualizados", "green")
-            import time
-            # print(f"✅ [{time.strftime('%H:%M:%S')}] Contingencia ZSDMX389 actualizada correctamente en: {ruta_zsdmx}")
-            return rutas_generadas
-            
-        except Exception as e:
-            self.emitter.keep_alive_signal.emit("Error actualizando ZSDMX389", "red")
-            raise Exception(f"Falla descargando reportes ZSDMX389: {e}")
+            session.findById("wnd[1]/tbar[0]/btn[11]").press()
+        except Exception:
+            session.findById("wnd[1]/tbar[0]/btn[0]").press()
+
+        # Validación en la barra de estado
+        msg_bar = session.findById("wnd[0]/sbar").text.strip().lower()
+        if "bytes transferidos" in msg_bar:
+            return {"estatus": True, "msg": f"Descarga exitosa. {msg_bar}"}
+        else:
+            return {"estatus": False, "msg": f"Respuesta de SAP: {msg_bar}"}
 
     def vt16(self, centro_exp: str, fch_in: str, fch_fn: str, path_descarga: str, nom_archivo: str, status_global_in: str, status_global_fn: str, descargar: bool = True) -> bool:
         """
@@ -1500,31 +1749,3 @@ class SAPManager:
             self.emitter.keep_alive_signal.emit("Error/Sin datos actualizando VT16", "orange")
             return ""
         
-    def acceder_a_transaccion(self, session, transaccion: str) -> bool:
-        """
-        Intenta ingresar a una transacción de SAP y valida si el usuario tiene permisos.
-        """
-        try:
-            # 1. Ejecutar el comando para ir a la transacción
-            session.findById("wnd[0]/tbar[0]/okcd").text = f"/n {transaccion}"
-            session.findById("wnd[0]").sendVKey(0)
-
-            # 2. Leer la barra de estado (sbar)
-            sap_msg = session.findById("wnd[0]/sbar").text
-            
-            # 3. Validar mensajes de error de Basis/Permisos
-            # En Python usamos una lista para poder agregar más errores fácilmente en el futuro
-            errores_acceso = ["Falta autorización", "La transacción", "No tiene autorización"]
-            
-            if any(error in sap_msg for error in errores_acceso):
-                # Si detecta que no hay permiso, lanzamos un SAPError para que el Kiosko lo atrape
-                raise SAPError(f"Acceso denegado a {transaccion}: {sap_msg}")
-            
-            return True
-            
-        except Exception as e:
-            # Si el error ya es nuestro SAPError controlado, lo dejamos pasar hacia arriba
-            if isinstance(e, SAPError):
-                raise e
-            # Si es un error de conexión, lo empaquetamos
-            raise SAPError(f"Error técnico al intentar abrir {transaccion}: {e}")

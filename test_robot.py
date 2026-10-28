@@ -158,6 +158,73 @@ def probar_vt16(robot, centro_exp_test="MX47"):
         print(f" ❌ ERROR CRÍTICO (VT16): {e}")
         return False
 
+
+
+import os
+from datetime import datetime, timedelta
+
+def test_zsdmx267():
+    """
+    Función de prueba para zsdmx267_descargar_archivos.
+    Ejecuta el reporte con rango ayer - hoy y layout '/PLANEADOR 2'.
+    """
+    # 1. Instanciar la clase gestora
+    # Asegúrate de usar el nombre exacto de tu clase contenedora (ej. SAPManager)
+    manager = SAPManager() 
+
+    # 2. Fechas dinámicas (formato SAP DD.MM.YYYY)
+    hoy = datetime.now()
+    ayer = hoy - timedelta(days=1)
+    
+    fch_in = ayer.strftime("%d.%m.%Y")
+    fch_fn = hoy.strftime("%d.%m.%Y")
+
+    # 3. Parámetros de prueba
+    # Usamos la carpeta de Descargas del sistema para evitar problemas de permisos
+    path_descarga = os.path.join(os.path.expanduser("~"), "Downloads")
+    nom_archivo = f"TEST_ZSDMX267_{hoy.strftime('%Y%m%d_%H%M%S')}"
+    extension = "csv"  # Puedes cambiar a 'csv' o 'xls' para validar los otros flujos
+    lay_out = "/0.TRAN_REP"
+    centro_exp = "*"      # Si requieres un centro específico para filtrar datos, agrégalo aquí (ej. '0152')
+
+    print("=" * 60)
+    print(" INICIANDO PRUEBA ZSDMX267")
+    print(f" • Rango fechas: {fch_in} -> {fch_fn}")
+    print(f" • Layout:       {lay_out}")
+    print(f" • Destino:      {path_descarga}")
+    print(f" • Archivo:      {nom_archivo}.{extension}")
+    print("=" * 60)
+
+    # 4. Ejecución
+    resultado = manager.zsdmx267_descargar_archivos(
+        path_descarga=path_descarga,
+        nom_archivo=nom_archivo,
+        extension=extension,
+        fch_in=fch_in,
+        fch_fn=fch_fn,
+        lay_out=lay_out,
+        centro_exp=centro_exp,
+        descargar=True
+    )
+
+    # 5. Evaluación de resultados
+    if resultado.get("estatus"):
+        print(f"\n✅ Prueba EXITOSA: {resultado.get('msg')}")
+        archivo_generado = os.path.join(path_descarga, f"{nom_archivo}.{extension}")
+        if os.path.exists(archivo_generado):
+            print(f"📁 Archivo verificado en disco: {archivo_generado}")
+        else:
+            print("⚠️ El reporte finalizó pero verifica la ruta/nombre del archivo generado.")
+    else:
+        print(f"\n❌ Prueba FALLIDA: {resultado.get('msg')}")
+
+    return resultado
+
+
+if __name__ == "__main__":
+    test_zsdmx267()
+
+
 # ==============================================================================
 # BLOQUE PARA PRUEBA DE PLACAS CON CLOUDFORT
 # ==============================================================================
@@ -171,7 +238,7 @@ if __name__ == "__main__":
     
     probar_cloudfort(PLACA_TEST)    
 
-"""
+
 
 # ==============================================================================
 # BLOQUE PRINCIPAL DE EJECUCIÓN
@@ -188,7 +255,7 @@ if __name__ == "__main__":
         exito_descarga = probar_zsdmx389(mi_robot)
         
         # --- PRUEBA BÁSCULA Y TRANSPORTE (Comentadas temporalmente) ---
-        """
+    
         exito_folio = probar_folio_bascula(mi_robot) 
         
         if exito_folio:
@@ -196,7 +263,8 @@ if __name__ == "__main__":
             probar_crear_transporte(mi_robot)
         else:
             print("\n⚠️ Saltando prueba de transporte porque falló el folio de báscula.")
-        """
+   
             
     except Exception as e:
         print(f"Error general al iniciar SAPManager: {e}")
+"""
