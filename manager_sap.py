@@ -1511,6 +1511,73 @@ class SAPManager:
                 "msg": f"Falla interna ejecutando ZSDMX267: {e}"
             }
 
+    def zsdmx249(self, path_descarga: str, nom_archivo: str, extension: str = "csv",
+                 fch_in_sm_real: str = "", fch_fn_sm_real: str = "",
+                 lay_out: str = "/ZQL_REPORT", org_vta: str = "0152",
+                 c_exp: str = "*", descargar: bool = True) -> dict:
+        """
+        Ejecuta la transacción ZSDMX249, ingresa filtros de organización, centro,
+        fechas de salida de mercancía y layout en la pantalla inicial, y exporta el archivo.
+        """
+        session = self.obtener_sesion()
+        if not session:
+            return {"estatus": False, "msg": "No hay sesión abierta en SAP para ejecutar ZSDMX249."}
+
+        try:
+            # 1. Iniciar Transacción
+            self.acceder_a_transaccion(session, "ZSDMX249")
+
+            # 2. Llenar Filtros y Layout antes de ejecutar
+            session.findById("wnd[0]/usr/radP_AL").select()
+            session.findById("wnd[0]/usr/chkP_CBEM").selected = True
+            session.findById("wnd[0]/usr/ctxtS_VKORG-LOW").text = org_vta
+            session.findById("wnd[0]/usr/ctxtS_VSTEL-LOW").text = c_exp
+            session.findById("wnd[0]/usr/ctxtS_FKDAT-LOW").text = fch_in_sm_real
+            session.findById("wnd[0]/usr/ctxtS_FKDAT-HIGH").text = fch_fn_sm_real
+
+            if lay_out:
+                session.findById("wnd[0]/usr/ctxtP_VARIAN").text = lay_out
+
+            # 3. Ejecutar Reporte (F8)
+            session.findById("wnd[0]").sendVKey(8)
+
+            # 4. Manejo de Popups y validación de datos en barra de estado
+            intentos_popup = 0
+            while session.Children.Count > 1 and intentos_popup < 10:
+                try:
+                    msg_titulo = session.findById("wnd[1]").text
+                    if "Información" in msg_titulo or "Information" in msg_titulo:
+                        session.findById("wnd[1]").sendVKey(0)
+                    else:
+                        break
+                except Exception:
+                    break
+                intentos_popup += 1
+
+            mensaje_status = session.findById("wnd[0]/sbar").text.strip().lower()
+            if "no existen datos" in mensaje_status or "no data" in mensaje_status or "sin datos" in mensaje_status:
+                return {
+                    "estatus": False,
+                    "msg": f"La transacción ZSDMX249 no arrojó resultados: {mensaje_status}"
+                }
+
+            # 5. Descarga delegada al método modular (_exportar_archivo_sap)
+            if descargar:
+                return self._exportar_archivo_sap(
+                    session=session,
+                    path_descarga=path_descarga,
+                    nom_archivo=nom_archivo,
+                    extension=extension
+                )
+            else:
+                return {"estatus": True, "msg": "Reporte ZSDMX249 ejecutado sin solicitar descarga."}
+
+        except Exception as e:
+            return {
+                "estatus": False,
+                "msg": f"Falla interna ejecutando ZSDMX249: {e}"
+            }
+
     def _exportar_archivo_sap(self, session, path_descarga: str, nom_archivo: str, extension: str) -> dict:
         """
         Exporta el reporte activo en SAP adaptando el flujo según la extensión:
@@ -1588,7 +1655,9 @@ class SAPManager:
         else:
             return {"estatus": False, "msg": f"Respuesta de SAP: {msg_bar}"}
 
-    def vt16(self, centro_exp: str, fch_in: str, fch_fn: str, path_descarga: str, nom_archivo: str, status_global_in: str, status_global_fn: str, descargar: bool = True) -> bool:
+    def vt16(self, centro_exp: str, fch_in_crea: str, fch_fn_crea: str, 
+            path_descarga: str, nom_archivo: str, status_global_in: str, 
+            status_global_fn: str, lay_out: str = "/HORARIOS_FZ", descargar: bool = True) -> bool:
         """
         Ejecuta la transacción VT16 para ver transportes creados.
         Filtra estatus global de transporte del 0 al 5.
@@ -1611,8 +1680,8 @@ class SAPManager:
             session.findById("wnd[0]/usr/ctxtK_STTRG-HIGH").text = status_global_fn
 
             # --- 3. FECHAS Y CENTRO ---
-            session.findById("wnd[0]/usr/ctxtK_ERDAT-LOW").text = fch_in
-            session.findById("wnd[0]/usr/ctxtK_ERDAT-HIGH").text = fch_fn
+            session.findById("wnd[0]/usr/ctxtK_ERDAT-LOW").text = fch_in_crea
+            session.findById("wnd[0]/usr/ctxtK_ERDAT-HIGH").text = fch_fn_crea
             if centro_exp: # Solo si se manda el centro
                 session.findById("wnd[0]/usr/ctxtK_TPLST-LOW").text = centro_exp
 
@@ -1647,11 +1716,11 @@ class SAPManager:
                         nombre_layout = session.findById(lbl_id).text.strip()
                         # print(f"Layout analizado(Fila {i}) {nombre_layout}")
                         # Comparamos
-                        if nombre_layout == "/HORARIOS_FZ":
+                        if nombre_layout == lay_out:
                             session.findById(lbl_id).setFocus()
                             session.findById("wnd[1]").sendVKey(2) # F2 / Doble clic (Seleccionar)
                             layout_encontrado = True
-                            print(f"✅ Layout /HORARIOS_FZ encontrado y aplicado (Fila {i}).")
+                            print(f"✅ Layout {lay_out} encontrado y aplicado (Fila {i}).")
                             break
                             
                     except:
@@ -1661,7 +1730,7 @@ class SAPManager:
                 
                 # Si recorrió toda la lista y no lo encontró
                 if not layout_encontrado:
-                    print("⚠️ Layout /HORARIOS_FZ no encontrado en la lista. Se exportará con el layout actual.")
+                    print(f"⚠️ Layout {lay_out} no encontrado en la lista. Se exportará con el layout actual.")
                     session.findById("wnd[1]").sendVKey(12) # Cerrar la ventana de layouts (Cancelar)
 
             except Exception as e:

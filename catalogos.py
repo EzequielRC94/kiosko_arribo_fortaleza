@@ -71,6 +71,25 @@ CATALOGO_MATERIALES = {
 }
 
 # ==============================================================================
+# CATÁLOGO DE USUARIOS AUTORIZADOS PARA ARRIBO EN BÁSCULA
+# ==============================================================================
+USUARIOS_AUTORIZADOS_ARRIBO = {
+    "jequisl":    "Jose Trinidad Equis Lopez",
+    "mcantoc":    "Mario Alejandro Canto Canul",
+    "zvilledav":  "Zahira Guadalupe Villeda Vergara",
+    "ltorrest":   "Lizeth Torres Tepetate",
+    "bjaena":     "Betsabe Montserrath Jaen Arellano",
+    "ugonzalezs": "Uriel Arturo Gonzalez Sanchez",
+    "lpachecoc":  "Leisdi Alis Pacheco Cruz",
+    "dhidalgom":  "Diana Caren Hidalgo Martin",
+    "mcruzv":     "Martin Daniel Cruz Vargas",
+    "anmoralesg": "Elda Neidy Morales Guerrero",
+    "aramirezc":  "Alberto Ezequiel Ramirez Contreras",
+    "isantiagom": "Isidro Santiago Mendoza",
+    "mcoronadon": "Mario Arturo Coronado Neville"
+}
+
+# ==============================================================================
 # FUTUROS CATÁLOGOS (Estructuras vacías o ejemplos)
 # ==============================================================================
 

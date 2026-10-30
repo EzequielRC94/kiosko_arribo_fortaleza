@@ -1,0 +1,38 @@
+
+# Sin terminar, falta declarar alinear cuantas unidades caben por line considerando fulles, sencillas y Torton,
+# Falta declar
+
+Ahora vamos con algo mas complicado en @gui_bascula.py
+Te explico, 
+Ya tenemos una lista llamada vistas_config
+En la cual configura de acuerdo a los puntos de carga,
+
+Quiero implementar un maximo de unidades por cada linea de carga,
+Es decir, 
+Vamos a contar de la tabla los que tengan el estatus "cargando..."
+
+self.tabla = QTableWidget() columna "Estatus"
+Contar transportes con estatus "cargando..."
+Este numero se mostrara en un label lbl_unidades_cargando, 
+
+Ahora como vamos a mostrar la información.
+Vamos a cambiar el orden de los lbl infomativos, en el siguiente orden
+lbl_vista_titulo
+lbl_kpi_toneladas
+lbl_kpi_unidades
+lbl_unidades_pendientes
+
+Ahora, te explico como funciona actualmente las capacidades de carga en unidades, es decir unidades que deben estar a dentro, no menos por que pierdes productividad, NO mas por que incurres en temas de seguridad.
+
+Planta Tula = GRANEL - LÍNEA 1 (MX47) = 3 unidades
+Planta Tula = GRANEL - LÍNEA 2 (MX57) = 4 unidades
+Planta Tula = ENVASADO - LÍNEA 1 (MX47)  = 4 unidades
+Planta Tula = ENVASADO - LÍNEA 2 (MX57)  = 4 unidades
+
+Es decir si miras             self.vistas_config he actualizado la lista de lineas de carga por material.
+
+Planta Palmar = GRANEL - LÍNEA 1 (MX16) = 4 unidades
+Planta Palmar = ENVASADO - LÍNEA 1 (MX16) = 4 unidades
+
+Planta Progreso = GRANEL - LÍNEA 1 (MX76) = 4 unidades
+Planta Progreso = ENVASADO - LÍNEA 1 (MX16) = 4 unidades

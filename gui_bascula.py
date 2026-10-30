@@ -36,16 +36,16 @@ class VentanaBasculaMain(QMainWindow):
         self.codigos_sap = session_data.planta_gui_codigos # <--
 
 
-        # --- NUEVA LÓGICA: CONFIGURACIÓN DINÁMICA DE VISTAS ---
+        # --- CONFIGURACIÓN DINÁMICA DE VISTAS ---
         if "Tula" in self.nombre_planta:
             self.vistas_config = [
                 {"nombre": "GRANEL - LÍNEA 1 (MX47)",   "gpo": "GRANEL",   "ce": "MX47", "filtro_mat": ""},
                 {"nombre": "GRANEL - LÍNEA 2 (MX57)",   "gpo": "GRANEL",   "ce": "MX57", "filtro_mat": ""},
-                {"nombre": "ENVASADO - FORTALEZA (L2)", "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "FORTALEZA"},
-                {"nombre": "ENVASADO - MORTEROS (L2)",  "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "MORTERO"},
-                {"nombre": "ENVASADO - BIG BAG (L2)",   "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "BIG BAG"},
-                {"nombre": "ENVASADO - MAGNOS (L1)",    "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "MAGNO"},
-                {"nombre": "ENVASADO - BLANCOS (L1)",   "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "BCO"},
+                {"nombre": "ENVASADO - LÍNEA 2 (MX57) FORTALEZA", "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "FORTALEZA"},
+                {"nombre": "ENVASADO - LÍNEA 2 (MX57) MORTEROS",  "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "MORTERO"},
+                {"nombre": "ENVASADO - LÍNEA 2 (MX57) BIG BAG",   "gpo": "ENVASADO", "ce": "MX57", "filtro_mat": "BIG BAG"},
+                {"nombre": "ENVASADO - LÍNEA 1 (MX47) MAGNOS",    "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "MAGNO"},
+                {"nombre": "ENVASADO - LÍNEA 1 (MX47) BLANCOS",   "gpo": "ENVASADO", "ce": "MX47", "filtro_mat": "BCO"},
             ]
         else:
             self.vistas_config = [
@@ -85,10 +85,10 @@ class VentanaBasculaMain(QMainWindow):
         self.lbl_vista_titulo.setFont(QFont("Arial Black", 28, QFont.Weight.Bold))
         self.lbl_vista_titulo.setStyleSheet("color: #008080;")
         
-        self.lbl_kpi_unidades = QLabel("Unidades: 0")
+        self.lbl_kpi_unidades = QLabel("Unidades Pendientes: 0")
         self.lbl_kpi_unidades.setFont(QFont("Arial", 16))
         
-        self.lbl_kpi_toneladas = QLabel("Toneladas: 0.00 ton")
+        self.lbl_kpi_toneladas = QLabel("Toneladas Pendientes: 0.00 ton")
         self.lbl_kpi_toneladas.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         self.lbl_kpi_toneladas.setStyleSheet("color: #D35400;") # Color óxido para resaltar
         
@@ -119,8 +119,19 @@ class VentanaBasculaMain(QMainWindow):
             QPushButton { background-color: #008080; color: white; border-radius: 10px; border: 2px solid #006666; }
             QPushButton:hover { background-color: #006666; }
             QPushButton:pressed { background-color: #004d4d; }
+            QPushButton:disabled { background-color: #BDC3C7; color: #7F8C8D; border: 2px solid #A6ACAF; }
         """)
         self.btn_arribar_nvo.clicked.connect(self.accion_nuevo_arribo)
+
+        # Validación de permisos por usuario de Windows (environ)
+        from catalogos import USUARIOS_AUTORIZADOS_ARRIBO
+        usuario_windows = (os.environ.get("USERNAME") or os.environ.get("USER") or "").strip().lower()
+        if usuario_windows in USUARIOS_AUTORIZADOS_ARRIBO:
+            self.btn_arribar_nvo.setEnabled(True)
+            self.btn_arribar_nvo.setToolTip(f"Autorizado: {USUARIOS_AUTORIZADOS_ARRIBO[usuario_windows]} ({usuario_windows})")
+        else:
+            self.btn_arribar_nvo.setEnabled(False)
+            self.btn_arribar_nvo.setToolTip(f"No disponible para el usuario actual ({usuario_windows})")
 
         # Botón LLAMAR
         self.btn_llamar = QPushButton("📢 LLAMAR SELECCIONADOS")
@@ -301,8 +312,8 @@ class VentanaBasculaMain(QMainWindow):
 
         # Actualizar KPIs
         pendientes = len([x for x in items_filtrados if x.get("estatus") == "ESPERA"])
-        self.lbl_kpi_unidades.setText(f"Pendientes: {pendientes}")
-        self.lbl_kpi_toneladas.setText(f"Total Ton: {suma_toneladas:.2f} TON")
+        self.lbl_kpi_unidades.setText(f"Unidades Pendientes: {pendientes}")
+        self.lbl_kpi_toneladas.setText(f"Toneladas Pendientes: {suma_toneladas:.2f} TON")
 
         # ordenar array
         items_filtrados.sort(key=lambda x: str(x.get("transporte", "")))

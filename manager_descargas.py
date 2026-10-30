@@ -1,6 +1,6 @@
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from manager_sap import SAPManager
 
 # --- LÓGICA DE VALIDACIÓN DE TIEMPO ---
@@ -126,3 +126,82 @@ class DescargasManager:
             
         except Exception as e:
             raise Exception(f"Falla crítica en evaluación/descarga ZSDMX389: {e}")
+
+    def zsdmx249_robot(self, ruta_base_drive: str, dias_atras: int = 3, extension: str = "csv") -> dict:
+        """
+        Recorre desde hoy hasta -3 días para descargar la transacción ZSDMX249.
+        - Si el archivo no existe en path_249, lo descarga.
+        - Si ya existe, valida si su fecha de modificación (YYYYMMDD) es igual a fecha_str;
+          si es la misma, lo descarga (actualiza el día en curso o actualiza el archivo de ayer hoy).
+        """
+        path_249 = os.path.join(ruta_base_drive, "zsdmx249")
+        os.makedirs(path_249, exist_ok=True)
+
+        centro_exp = "*"
+        lay_out = "/ZQL_REPORT"
+        hoy = datetime.now()
+
+        rutas_generadas = {}
+        exito_final = True
+        msg_final = "Descargas ZSDMX249 procesadas correctamente."
+
+        try:
+            for i in range(dias_atras + 1):
+                fecha_loop = hoy - timedelta(days=i)
+                fecha_str = fecha_loop.strftime("%Y%m%d")
+                fch_sap = fecha_loop.strftime("%d.%m.%Y")
+
+                nom_249 = f"zsdmx249_{fecha_str}"
+                ext_limpia = extension.strip().lower().replace(".", "")
+                ruta_archivo = os.path.join(path_249, f"{nom_249}.{ext_limpia}")
+
+                debe_descargar = False
+                motivo = ""
+
+                if not os.path.exists(ruta_archivo):
+                    debe_descargar = True
+                    motivo = "No existe el archivo"
+                else:
+                    fch_mod_str = datetime.fromtimestamp(os.path.getmtime(ruta_archivo)).strftime("%Y%m%d")
+                    if fch_mod_str == fecha_str and _requiere_descarga(ruta_archivo):
+                        debe_descargar = True
+                        motivo = f"Antigüedad > 10 min y fecha modificación ({fch_mod_str}) == fecha archivo ({fecha_str})"
+
+                rutas_generadas[fecha_str] = {"ruta": ruta_archivo, "actualizado": False}
+
+                if debe_descargar:
+                    print(f"⬇️ [ZSDMX249] Descargando {nom_249}.{ext_limpia} ({motivo})...")
+                    respuesta_sap = self.sap_manager.zsdmx249(
+                        path_descarga=path_249,
+                        nom_archivo=nom_249,
+                        extension=ext_limpia,
+                        fch_in_sm_real=fch_sap,
+                        fch_fn_sm_real=fch_sap,
+                        lay_out=lay_out,
+                        org_vta="0152",
+                        c_exp=centro_exp,
+                        descargar=True
+                    )
+
+                    estatus_descarga = respuesta_sap.get("estatus", False)
+                    rutas_generadas[fecha_str]["actualizado"] = estatus_descarga
+
+                    if not estatus_descarga:
+                        exito_final = False
+                        msg_final = respuesta_sap.get("msg", f"Error en SAP al descargar {nom_249}")
+                        print(f"  ⚠️ [ZSDMX249] Falla en {fch_sap}: {msg_final}")
+                    else:
+                        print(f"  ✅ [ZSDMX249] {nom_249}.{ext_limpia}: {respuesta_sap.get('msg')}")
+
+                    time.sleep(1)
+                else:
+                    print(f"⏭️ [ZSDMX249] Omitiendo {nom_249}.{ext_limpia} (Reciente < 10 min o ya actualizado posteriormente).")
+
+            return {
+                "estatus": exito_final,
+                "msg": msg_final,
+                "rutas": rutas_generadas
+            }
+
+        except Exception as e:
+            raise Exception(f"Falla crítica en evaluación/descarga ZSDMX249: {e}")
