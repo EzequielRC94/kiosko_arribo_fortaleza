@@ -1,7 +1,37 @@
 import os
+import sys
 import time
+import ctypes
 from datetime import datetime, timedelta
 from manager_sap import SAPManager
+
+
+def configurar_icono_app(ventana=None, app_id: str = "kiosko.autoarribo.produccion.1.0"):
+    """
+    Homologa la configuración del ícono (.ico) en la barra de título y en la barra de tareas
+    de Windows (tanto en ejecución normal de Python como empaquetado con PyInstaller).
+    """
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception as e:
+        print(f"Aviso: No se pudo forzar el ícono en la barra de tareas: {e}")
+
+    try:
+        from PyQt5.QtGui import QIcon
+        from PyQt5.QtWidgets import QApplication
+
+        directorio_base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        ruta_icono = os.path.join(directorio_base, "images", "logo_short_ico.ico")
+        icono = QIcon(ruta_icono)
+
+        app_actual = QApplication.instance()
+        if app_actual is not None:
+            app_actual.setWindowIcon(icono)
+
+        if ventana is not None:
+            ventana.setWindowIcon(icono)
+    except Exception as e:
+        print(f"Aviso: No se pudo cargar el archivo de ícono: {e}")
 
 # --- LÓGICA DE VALIDACIÓN DE TIEMPO ---
 def _requiere_descarga(ruta_archivo: str, limite_minutos: int = 10) -> bool:

@@ -3,6 +3,7 @@ import sys
 import random
 import time
 import os
+import ctypes
 
 from datetime import datetime
 from PyQt5.QtWidgets import (
@@ -10,12 +11,12 @@ from PyQt5.QtWidgets import (
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, 
     QFrame, QMessageBox, QCheckBox
 )
-from PyQt5.QtGui import QFont, QColor, QBrush
+from PyQt5.QtGui import QFont, QColor, QBrush, QIcon
 from PyQt5.QtCore import Qt, QTimer, QSize
 from manager_arribos import ArribosManager
 from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
 from manager_sap import SAPManager
-from manager_descargas import DescargasManager  
+from manager_descargas import DescargasManager, configurar_icono_app  
 from session_data import SessionData
 
 # Configuración de las "Pestañas" o Vistas del Carrusel
@@ -63,6 +64,10 @@ class VentanaBasculaMain(QMainWindow):
         # self.showMaximized() QUITAMOS de aquí (lo haremos al final cuando ya esté todo construido)
         self.setMinimumSize(1024, 700) # Un tamaño base seguro por si el usuario restaura la ventana
         self.setStyleSheet("background-color: #FFFFFF;")
+
+        # ====================================================================
+        # CONFIGURACIÓN HOMOLOGADA DEL ÍCONO (TÍTULO Y BARRA DE TAREAS)
+        configurar_icono_app(self, app_id="kiosko.bascula.produccion.1.0")
 
         # Layout Principal
         central_widget = QWidget()
@@ -661,6 +666,8 @@ class VentanaBasculaMain(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    configurar_icono_app(app_id="kiosko.bascula.produccion.1.0")
+
     font = QFont("Arial", 12)
     app.setFont(font)
     

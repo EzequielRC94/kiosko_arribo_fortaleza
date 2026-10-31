@@ -20,7 +20,7 @@ from manager_logs import LogManager
 from manager_cloudfort import CloudFortManager
 from mailer import EmailManager
 from manager_arribos import ArribosManager
-from manager_descargas import DescargasManager
+from manager_descargas import DescargasManager, configurar_icono_app
 from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
 from _zql_robot import obtener_datos_remision as obtener_datos_remision_robot
 
@@ -689,18 +689,8 @@ class AppWindow(QMainWindow):
         """)
         
         # ====================================================================
-        # NUEVO: CONFIGURACIÓN DEL ÍCONO (TÍTULO Y BARRA DE TAREAS)
-        directorio_actual = os.path.dirname(os.path.abspath(__file__))
-        ruta_icono = os.path.join(directorio_actual, "images", "logo_short_ico.ico")
-        self.setWindowIcon(QIcon(ruta_icono))
-        
-        # 3. TRUCO PRO: Forzar a Windows a mostrarlo en la barra de tareas
-        # (Si no hacemos esto, Windows agrupa la app bajo el logo genérico de Python) #NO FUNCIONA
-        try:
-            myappid = 'kiosko.autoarribo.produccion.1.0' # ID único inventado para la app
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-        except Exception as e:
-            print(f"Aviso: No se pudo forzar el ícono en la barra de tareas: {e}")
+        # CONFIGURACIÓN HOMOLOGADA DEL ÍCONO (TÍTULO Y BARRA DE TAREAS)
+        configurar_icono_app(self, app_id="kiosko.autoarribo.produccion.1.0")
 
         # Poner el cursor de manita a todos los botones de esta ventana
         for boton in self.findChildren(QPushButton):
@@ -739,7 +729,9 @@ class AppWindow(QMainWindow):
             self.timer_robot_sap.start(tiempo_robot_ms)
 
             # Conexión SAP Keep-Alive SAP 
-            self.sap_manager.emitter.keep_alive_signal.connect(self._actualizar_estado_sap)
+            self.sap_manager.emitter.keep_alive_signal.connect(
+                lambda msg, color: self.mostrar_mensaje_estado(msg=msg, var_color=color)
+            )
 
         # --- TEMPORIZADOR DE AUTO-REINICIO ---
         self.timer_autoreset = QTimer(self)
@@ -1325,7 +1317,7 @@ class AppWindow(QMainWindow):
             # 1. EXTRACCIÓN DE DATOS (MÁQUINA EXTRACTORA EN _zql_robot.py)
             # =================================================================
             self.v1.txt_remision.setDisabled(True)
-            self.statusBar().showMessage(f"Buscando remisión {remision}...")
+            self.mostrar_mensaje_estado(f"Buscando remisión {remision}...", True)
             self.session_data.registrar_paso("[USUARIO] Ingreso", f"Escaneó remisión: {remision}")
 
             resultado_extraccion = obtener_datos_remision_robot(
@@ -1334,7 +1326,7 @@ class AppWindow(QMainWindow):
                 cloudfort_manager=self.cloudfort_manager,
                 sap_manager=self.sap_manager,
                 arribos_manager=self.arribos_manager,
-                on_status=self.statusBar().showMessage
+                on_status=lambda msg: self.mostrar_mensaje_estado(msg, True)
             )
 
             self.v1.txt_remision.setDisabled(False) # Reactivamos siempre el campo
@@ -1426,17 +1418,22 @@ class AppWindow(QMainWindow):
                     titulo_pantalla="REMISIÓN NO ENCONTRADA"
                 )
 
-    def _actualizar_estado_sap(self, mensaje: str, estilo: str = "gray"):
-        """Muestra el estado del sistema (SAP Keep-Alive) en la barra de estado."""
-        self.statusBar().setStyleSheet(f"color: {estilo};")
-        self.statusBar().showMessage(f"Estado del Sistema: {time.strftime('%H:%M:%S')} - {mensaje}")
-
-    def mostrar_mensaje_estado(self, msg: str, es_correcto: bool):
+    def mostrar_mensaje_estado(self, msg: str, es_correcto: bool = True, var_color: str = ""):
         """
-        Equivalente a 'aplicar_color_estado' de VBA.
-        Muestra texto en la barra inferior (statusBar) con fondo y letra condicional.
+        Muestra texto en la barra inferior (statusBar) con estilo condicional:
+        - Si viene especificado var_color: aplica ese color a la letra.
+        - Si es_correcto es True: aplica fondo verde claro y texto verde oscuro.
+        - Si es_correcto es False: aplica fondo rosa y texto rojo oscuro.
         """
-        if es_correcto:
+        if var_color:
+            # Si viene especificado un var_color, tomamos ese color para la letra
+            estilo = f"""
+                QStatusBar {{
+                    color: {var_color};
+                    font-weight: bold;
+                }}
+            """
+        elif es_correcto:
             # Estado Válido / Éxito (Fondo Verde Claro, Texto Verde Oscuro)
             estilo = """
                 QStatusBar { 
@@ -1455,7 +1452,7 @@ class AppWindow(QMainWindow):
                 }
             """
         
-        # Aplicamos el color y mandamos el texto a la pantalla
+        # Aplicamos el estilo y mandamos el texto a la pantalla
         self.statusBar().setStyleSheet(estilo)
         self.statusBar().showMessage(msg, 10000) # El 10000 indica que el mensaje se borrará solo a los 10 segundos
     
@@ -1492,15 +1489,19 @@ class AppWindow(QMainWindow):
                 self.hay_internet = False
                 print(f"[{time.strftime('%H:%M:%S')}] 🌐 [RED] Conexión perdida. Cambiando a Modo Contingencia.")
                 
-            self.statusBar().setStyleSheet("color: red; font-weight: bold;")
-            self.statusBar().showMessage(f"⚠️ [{time.strftime('%H:%M:%S')}] SIN CONEXIÓN A INTERNET. Kiosko operando en Modo Contingencia Local.")
+            self.mostrar_mensaje_estado(
+                f"⚠️ [{time.strftime('%H:%M:%S')}] SIN CONEXIÓN A INTERNET. Kiosko operando en Modo Contingencia Local.",
+                es_correcto=False
+            )
             
         else:
             if not self.hay_internet:
                 # CASO 2: No había internet pero ahora ya hay (El internet REGRESÓ)
                 self.hay_internet = True
-                self.statusBar().setStyleSheet("color: green;")
-                self.statusBar().showMessage(f"✅ [{time.strftime('%H:%M:%S')}] Conexión a Internet RECUPERADA. Iniciando sincronización...")
+                self.mostrar_mensaje_estado(
+                    f"✅ [{time.strftime('%H:%M:%S')}] Conexión a Internet RECUPERADA. Iniciando sincronización...",
+                    es_correcto=True
+                )
                 print(f"✅ [{time.strftime('%H:%M:%S')}] 🌐  [RED] Conexión recuperada. Ejecutando pendientes...")
                 
                 # Disparamos la lectura del Excel para procesar contingencias
@@ -1508,8 +1509,10 @@ class AppWindow(QMainWindow):
                 
             else:
                 # CASO 3: Hay internet estable (Se mantiene la conexión)
-                self.statusBar().setStyleSheet("color: green;")
-                self.statusBar().showMessage(f"✅ [{time.strftime('%H:%M:%S')}] Trabajando con internet")
+                self.mostrar_mensaje_estado(
+                    f"✅ [{time.strftime('%H:%M:%S')}] Trabajando con internet",
+                    es_correcto=True
+                )
         # Nota: Internet caído (False y False), no hace nada.
 
     def _procesar_contingencias_pendientes(self):
@@ -1528,7 +1531,7 @@ class AppWindow(QMainWindow):
         if not os.path.exists(ruta_excel):
             return
 
-        self.statusBar().showMessage("🔄 [SYNC] Buscando operaciones en contingencia para sincronizar...")
+        self.mostrar_mensaje_estado("🔄 [SYNC] Buscando operaciones en contingencia para sincronizar...", True)
         print("⚙️ [SYNC] Buscando operaciones en contingencia para sincronizar...")
 
         try:
@@ -1543,7 +1546,7 @@ class AppWindow(QMainWindow):
 
         if pendientes.empty:
             print("✅ [SYNC] No hay contingencias pendientes.")
-            self.statusBar().showMessage("✅ [SYNC] Contingencias al día.")
+            self.mostrar_mensaje_estado("✅ [SYNC] Contingencias al día.", True)
             return
 
         # Agrupar por 'ticket' (cada ticket es un camión único, aunque tenga varias filas de materiales)
@@ -1553,7 +1556,7 @@ class AppWindow(QMainWindow):
         for ticket_id, grupo in tickets_pendientes:
             try:
                 print(f"🚀 [SYNC] Procesando ticket contingencia: {ticket_id}")
-                self.statusBar().showMessage(f"🔄 Sincronizando arribo pendiente: {ticket_id}")
+                self.mostrar_mensaje_estado(f"🔄 Sincronizando arribo pendiente: {ticket_id}", True)
                 
                 # --- RECONSTRUCCIÓN DE VARIABLES DESDE EL DATAFRAME ---
                 primera_fila = grupo.iloc[0]
@@ -1661,56 +1664,14 @@ class AppWindow(QMainWindow):
                 try:
                     df.to_excel(ruta_excel, index=False, engine='openpyxl')
                     print("💾 [SYNC] Base de datos de Arribos actualizada y guardada correctamente.")
-                    self.statusBar().showMessage("✅ Contingencias sincronizadas con SAP.", 5000)
+                    self.mostrar_mensaje_estado("✅ Contingencias sincronizadas con SAP.", True)
                 except Exception as e:
                     print(f"❌ [SYNC] Error crítico al sobrescribir {ruta_excel}: {e}")
 
-    def _mocking_finalizar_simulacion_arribo(self):
-            """
-            Simula el grabado en SAP, actualiza el Log (Excel) y muestra el resultado en V4.
-            """
-             # QTimer para simular la espera (5 segundos)
-            self.proceso_timer = QTimer(self)
-            self.proceso_timer.setSingleShot(True)
-            # 1. Registrar la hora de finalización
-            self.session_data.fin_arribo = datetime.now()
-
-            # --- Lógica Real: Aquí llamarías a self.sap_manager.crear_arribo(...) ---
-            
-            # 2. Simulación de éxito/error (70% probabilidad de éxito)
-            exito = random.random() < 0.7 
-
-            if exito:
-                # === CASO ÉXITO ===
-                mensaje_pantalla = "ARRIBO CORRECTO\nPUEDE PASAR A BÁSCULA."
-                color = "green"
-                
-                # Datos para el Log
-                self.session_data.mensaje_resultado = "EXITOSO"
-                self.session_data.ultimo_paso = "Finalizado_Correctamente"
-                
-            else:
-                # === CASO ERROR ===
-                mensaje_pantalla = "ERROR AL GUARDAR ARRIBO.\nPASE A VENTANILLA."
-                color = "red"
-                
-                # Datos para el Log
-                self.session_data.mensaje_resultado = "ERROR DE SISTEMA (SIMULADO)"
-                self.session_data.ultimo_paso = "Fallo_Grabado_SAP"
-
-            # 3. GUARDAR EL LOG EN EXCEL
-            # Este es el paso crucial que nos faltaba:
-            print(f"Guardando evento final: {self.session_data.mensaje_resultado}")
-            self.logger.guardar_evento(self.session_data)
-
-            # 4. Actualizar la Interfaz Gráfica (V4)
-            self.v4.set_estado(mensaje_pantalla, color, mostrar_boton=True)
-
 
 if __name__ == "__main__":
-    import ctypes
-    
     app = QApplication(sys.argv)
+    configurar_icono_app(app_id="kiosko.autoarribo.produccion.1.0")
     
     # 1. Mostrar el selector unificado
     from gui_selector_planta import obtener_configuracion_inicial
