@@ -30,7 +30,7 @@ class VentanaBasculaMain(QMainWindow):
     def __init__(self, session_data: SessionData):
         super().__init__()
         self.sap_manager = SAPManager()
-        self.manager_descargas = DescargasManager()
+        self.manager_descargas = DescargasManager(sap_manager=self.sap_manager)
 
         self.session_data = session_data
         self.nombre_planta = session_data.planta_gui_nombre # <--
@@ -429,7 +429,7 @@ class VentanaBasculaMain(QMainWindow):
             Orquesta el llamado de operadores:
             1. Obtiene las remisiones seleccionadas y sus transportes asociados.
             2. Arma el diccionario data = {"TEXT3": "02 llamado DD/MM/YYYY HH:MM:SS"}.
-            3. Ejecuta modificar_transporte en SAP (VT02N) y actualiza la tabla si devuelve True.
+            3. Ejecuta modificar_transporte en SAP (VT02N) en Modo Túnel y actualiza la tabla si devuelve True.
             """
             remisiones_seleccionadas = []
             
@@ -489,31 +489,32 @@ class VentanaBasculaMain(QMainWindow):
                 "TEXT3": texto_llamado
             }
 
-            # 5. Iterar sobre cada transporte único y mandarlo a SAP VT02N
+            # 5. Iterar sobre cada transporte único y mandarlo a SAP VT02N dentro del Modo Túnel
             transportes_exitosos = []
             errores_sap = []
 
             # Importamos SAPError por si hay bloqueo en SAP
             from manager_sap import SAPError
 
-            for num_transporte, lista_rems in mapa_transportes.items():
-                try:
-                    QApplication.processEvents() # Mantiene viva la ventana de Qt5 mientras trabaja SAP
-                    exito = self.sap_manager.modificar_transporte(num_transporte, data_cambios)
-                    
-                    if exito:
-                        transportes_exitosos.append(num_transporte)
-                        # Actualizamos en memoria todas las remisiones asociadas a este transporte
-                        for x_remision in self.datos_totales:
-                            if str(x_remision.get("transporte", "")).strip() == num_transporte:
-                                x_remision["estatus"] = "LLAMADO"
-                                
-                except SAPError as e_sap:
-                    print(f"❌ Error SAP al llamar transporte {num_transporte}: {e_sap}")
-                    errores_sap.append(f"• {e_sap}")
-                except Exception as e_gen:
-                    print(f"❌ Error inesperado con transporte {num_transporte}: {e_gen}")
-                    errores_sap.append(f"Transporte {num_transporte}: {e_gen}")
+            with self.sap_manager.tunel(f"Báscula: Llamar {len(mapa_transportes)} Transporte(s) en VT02N"):
+                for num_transporte, lista_rems in mapa_transportes.items():
+                    try:
+                        QApplication.processEvents() # Mantiene viva la ventana de Qt5 mientras trabaja SAP
+                        exito = self.sap_manager.modificar_transporte(num_transporte, data_cambios)
+                        
+                        if exito:
+                            transportes_exitosos.append(num_transporte)
+                            # Actualizamos en memoria todas las remisiones asociadas a este transporte
+                            for x_remision in self.datos_totales:
+                                if str(x_remision.get("transporte", "")).strip() == num_transporte:
+                                    x_remision["estatus"] = "LLAMADO"
+                                    
+                    except SAPError as e_sap:
+                        print(f"❌ Error SAP al llamar transporte {num_transporte}: {e_sap}")
+                        errores_sap.append(f"• {e_sap}")
+                    except Exception as e_gen:
+                        print(f"❌ Error inesperado con transporte {num_transporte}: {e_gen}")
+                        errores_sap.append(f"Transporte {num_transporte}: {e_gen}")
 
             # 6. Refrescar interfaz y dar retroalimentación al usuario
             self.actualizar_interfaz_vista()
@@ -540,9 +541,15 @@ class VentanaBasculaMain(QMainWindow):
     # CARGA DE DATOS REALES
     # ==========================================================================
     def _ejecutar_robot_zsdmx_bascula(self):
-        """Descarga EXCLUSIVAMENTE las remisiones EN PROCESO para actualizar el tablero de báscula."""
+        """
+        Descarga EXCLUSIVAMENTE las remisiones EN PROCESO para actualizar el tablero de báscula.
+        Se ejecuta en Modo Túnel / Fila Virtual para no colisionar con llamados VT02N ni nuevos arribos.
+        """
         import time
-        if self.sap_manager.validar_conexion():
+
+        def _tarea_descarga_bascula():
+            if not self.sap_manager.validar_conexion():
+                return
             print(f"⏳ [{time.strftime('%H:%M:%S')}] [ROBOT BÁSCULA] Iniciando actualización...")
             try:
                 resultado = self.manager_descargas.zsdmx389_robot(self.ruta_base_drive, tipo_descarga="en_proceso")
@@ -564,6 +571,11 @@ class VentanaBasculaMain(QMainWindow):
                     
             except Exception as e:
                 print(f"⚠️ [{time.strftime('%H:%M:%S')}] Error crítico en ejecución de báscula: {e}")
+
+        self.sap_manager.ejecutar_o_encolar(
+            "Robot Báscula: ZSDMX389 (En Proceso)",
+            _tarea_descarga_bascula
+        )
 
     def cargar_datos_reales(self):
         """Extrae la data en vivo del Excel ZSDMX389 (En Proceso)

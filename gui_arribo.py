@@ -631,7 +631,7 @@ class AppWindow(QMainWindow):
         self.cloudfort_manager = CloudFortManager()
         self.email_manager = EmailManager()   
         self.arribos_manager = ArribosManager()
-        self.manager_descargas = DescargasManager()
+        self.manager_descargas = DescargasManager(sap_manager=self.sap_manager)
 
         if session_config is not None:
             self.arribos_manager.configurar_ruta(self.session_data)
@@ -795,18 +795,24 @@ class AppWindow(QMainWindow):
 
     def _ejecutar_robot_zsdmx(self):
         """
-        Función disparada cada 21 minutos. Lanza el robot pasando la ruta global
+        Función disparada periódicamente. Lanza el robot pasando la ruta global
         para mantener actualizada la contingencia local (Plan C) SOLO PENDIENTES.
+        Se ejecuta mediante la Fila Virtual en Modo Túnel para no interrumpir arribos activos.
         """
-        if self.hay_internet and self.sap_manager.validar_conexion():
+        if not self.hay_internet:
+            print(f"⚠️ [{time.strftime('%H:%M:%S')}] [ROBOT] Descarga de contingencia omitida (Sin internet).")
+            return
+
+        def _tarea_robot_kiosko():
+            if not self.sap_manager.validar_conexion():
+                print(f"⚠️ [{time.strftime('%H:%M:%S')}] [ROBOT] Descarga de contingencia omitida (Sin SAP).")
+                return
+
             print(f"[{time.strftime('%H:%M:%S')}]⏳ [ROBOT] Iniciando actualización programada de ZSDMX389 (Pendientes)...")
             try:
-                # Obtenemos el diccionario con el estatus y mensaje
                 resultado = self.manager_descargas.zsdmx389_robot(self.session_data.ruta_base_drive, tipo_descarga="pendientes")
                 estatus_descarga = resultado.get("estatus")
-                #print(f"gui arribo: estatus {estatus_descarga}")
                 
-                # Evaluamos la llave "estatus"
                 if estatus_descarga:
                     msg = resultado.get("msg", "")
                     self.mostrar_mensaje_estado(msg=msg, es_correcto=True)
@@ -820,8 +826,11 @@ class AppWindow(QMainWindow):
                 msg_critico = f"Error crítico en orquestador ZSDMX389: {e}"
                 print(f"⚠️ [{time.strftime('%H:%M:%S')}] {msg_critico}")
                 self.mostrar_mensaje_estado(msg=msg_critico, es_correcto=False)
-        else:
-            print(f"⚠️ [{time.strftime('%H:%M:%S')}] [ROBOT] Descarga de contingencia omitida (Sin internet o sin SAP).")
+
+        self.sap_manager.ejecutar_o_encolar(
+            "Robot Kiosko: ZSDMX389 (Pendientes)",
+            _tarea_robot_kiosko
+        )
 
     # --- Métodos de Navegación ---
 
@@ -990,58 +999,58 @@ class AppWindow(QMainWindow):
 
             else:
                 # ----------------------------------------------------------------
-                # MODO B: ROBOT SAP (DEFAULT / ACTUAL)
+                # MODO B: ROBOT SAP (DEFAULT / ACTUAL) EN MODO TÚNEL ATÓMICO
                 # ----------------------------------------------------------------
-                self.session_data.registrar_paso("SAP: Inicio Kiosko", "Registrando en Kiosko")
-                mensaje_usuario = f"⏳ Creando folio de bascula en sistema"
-                self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando Kiosko", mostrar_boton=False)
-                QApplication.processEvents()
+                with self.sap_manager.tunel(f"Arribo SAP Completo ({self.session_data.ticket_id})"):
+                    self.session_data.registrar_paso("SAP: Inicio Kiosko", "Registrando en Kiosko")
+                    mensaje_usuario = f"⏳ Creando folio de bascula en sistema"
+                    self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando Kiosko", mostrar_boton=False)
+                    QApplication.processEvents()
 
-                resultado_kiosko = self.sap_manager.crear_folio_bascula(
-                    remisiones=remisiones,
-                    centro_expedicion=centro,
-                    tipo_remision=clase_entrega, 
-                    operador=operador,
-                    placas=placas,
-                    modalidad=modalidad
-                )
-                mensaje_usuario = "✅ Folio de bascula creado"
-                self.session_data.registrar_paso(f"SAP: Folio Creado", f"Kiosko: {resultado_kiosko}")
-                self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando Kiosko", mostrar_boton=False)
+                    resultado_kiosko = self.sap_manager.crear_folio_bascula(
+                        remisiones=remisiones,
+                        centro_expedicion=centro,
+                        tipo_remision=clase_entrega, 
+                        operador=operador,
+                        placas=placas,
+                        modalidad=modalidad
+                    )
+                    mensaje_usuario = "✅ Folio de bascula creado"
+                    self.session_data.registrar_paso(f"SAP: Folio Creado", f"Kiosko: {resultado_kiosko}")
+                    self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando Kiosko", mostrar_boton=False)
 
-                # ⏳ PREVENCIÓN DEL ERROR COM (-2147483638): Dormimos el script medio segundo
-                time.sleep(0.5)
+                    # ⏳ PREVENCIÓN DEL ERROR COM (-2147483638): Dormimos el script medio segundo
+                    time.sleep(0.5)
 
-                self.session_data.registrar_paso("SAP: Inicio Transporte", "Creando en VT01N")
-                mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n⏳ Creando transporte en sistema"
-                self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando VT01N", mostrar_boton=False)
-                QApplication.processEvents()
+                    self.session_data.registrar_paso("SAP: Inicio Transporte", "Creando en VT01N")
+                    mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n⏳ Creando transporte en sistema"
+                    self.v4.set_estado(f"{mensaje_usuario}", "blue", "Ejecutando VT01N", mostrar_boton=False)
+                    QApplication.processEvents()
 
-                no_transporte = self.sap_manager.crear_transporte(
-                    remisiones=remisiones,
-                    centro_expedicion=centro,
-                    modalidad=modalidad,
-                    operador=operador,
-                    placas=placas,
-                    clase_expedicion_f=clase_exp_final, 
-                    fecha_checklist= fch_checklist
-                )
+                    no_transporte = self.sap_manager.crear_transporte(
+                        remisiones=remisiones,
+                        centro_expedicion=centro,
+                        modalidad=modalidad,
+                        operador=operador,
+                        placas=placas,
+                        clase_expedicion_f=clase_exp_final, 
+                        fecha_checklist= fch_checklist
+                    )
 
-                # Validar y guardar transporte real
-                if no_transporte and str(no_transporte).strip().startswith("48"):
-                    self.session_data.transporte_sap = str(no_transporte).strip()
-                    self.session_data.registrar_paso("SAP: Transporte Creado", f"Transporte: {self.session_data.transporte_sap}")
-                    mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n✅ Transporte creado"
-                else:
-                    mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n❌ Transporte error"
-                    raise Exception(f"Transporte inválido generado por SAP: {no_transporte}")
+                    # Validar y guardar transporte real
+                    if no_transporte and str(no_transporte).strip().startswith("48"):
+                        self.session_data.transporte_sap = str(no_transporte).strip()
+                        self.session_data.registrar_paso("SAP: Transporte Creado", f"Transporte: {self.session_data.transporte_sap}")
+                        mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n✅ Transporte creado"
+                    else:
+                        mensaje_usuario = "✅ Folio de Bascula Creado" + f"\n❌ Transporte error"
+                        raise Exception(f"Transporte inválido generado por SAP: {no_transporte}")
 
-
-                # CIERRE EXITOSO NORMAL
-                self.session_data.estatus_arribo_mensaje = "Proceso SAP exitoso"
-                self.session_data.estatus_arribo_ultimo_paso = "OK"
-                mensaje_usuario = mensaje_usuario + f"\n ✅ ¡ARRIBO CORRECTO!\n Turno: {self.session_data.ticket_id}"
-                color_final = "green"
+                    # CIERRE EXITOSO NORMAL
+                    self.session_data.estatus_arribo_mensaje = "Proceso SAP exitoso"
+                    self.session_data.estatus_arribo_ultimo_paso = "OK"
+                    mensaje_usuario = mensaje_usuario + f"\n ✅ ¡ARRIBO CORRECTO!\n Turno: {self.session_data.ticket_id}"
+                    color_final = "green"
 
         finally:
             # ================================================================
@@ -1516,150 +1525,126 @@ class AppWindow(QMainWindow):
         # Nota: Internet caído (False y False), no hace nada.
 
     def _procesar_contingencias_pendientes(self):
-        import pandas as pd
         """
-        Lee arribos.xlsx con Pandas, busca estatus 'PENDIENTE', 
-        ejecuta Robot SAP y Web Service, y actualiza a 'CERRADO'.
+        Lee arribos.xlsx con Pandas, busca estatus 'PENDIENTE',
+        ejecuta Robot SAP y Web Service dentro del Modo Túnel / Fila Virtual,
+        y actualiza a 'CERRADO'.
         """
-        # 1. Validar conexión y recursos antes de arrancar
         if not self.hay_internet:
             return
 
-        # Usamos la ruta operativa configurada en el manager de arribos
-        ruta_excel = self.arribos_manager.ruta_completa
-        import os
-        if not os.path.exists(ruta_excel):
-            return
+        def _tarea_sincronizar_contingencias():
+            import pandas as pd
+            import os
 
-        self.mostrar_mensaje_estado("🔄 [SYNC] Buscando operaciones en contingencia para sincronizar...", True)
-        print("⚙️ [SYNC] Buscando operaciones en contingencia para sincronizar...")
+            ruta_excel = self.arribos_manager.ruta_completa
+            if not os.path.exists(ruta_excel):
+                return
 
-        try:
-            # 1. pd.read_excel(...)
-            df = pd.read_excel(ruta_excel, engine='openpyxl')
-        except Exception as e:
-            print(f"❌ [SYNC] Error leyendo excel de arribos: {e}")
-            return
+            self.mostrar_mensaje_estado("🔄 [SYNC] Buscando operaciones en contingencia para sincronizar...", True)
+            print("⚙️ [SYNC] Buscando operaciones en contingencia para sincronizar...")
 
-        # 2. Filtrar filas donde 'estatus_contingencia' == 'PENDIENTE'
-        pendientes = df[df['estatus_contingencia'] == 'PENDIENTE']
-
-        if pendientes.empty:
-            print("✅ [SYNC] No hay contingencias pendientes.")
-            self.mostrar_mensaje_estado("✅ [SYNC] Contingencias al día.", True)
-            return
-
-        # Agrupar por 'ticket' (cada ticket es un camión único, aunque tenga varias filas de materiales)
-        tickets_pendientes = pendientes.groupby('ticket')
-        hubo_cambios = False
-
-        for ticket_id, grupo in tickets_pendientes:
             try:
-                print(f"🚀 [SYNC] Procesando ticket contingencia: {ticket_id}")
-                self.mostrar_mensaje_estado(f"🔄 Sincronizando arribo pendiente: {ticket_id}", True)
-                
-                # --- RECONSTRUCCIÓN DE VARIABLES DESDE EL DATAFRAME ---
-                primera_fila = grupo.iloc[0]
-                
-                centro = primera_fila.get('c_exp', 'MX47')
-                clase_entrega = primera_fila.get('clase_entrega', '')
-                operador = primera_fila.get('operador', '')
-                placas = primera_fila.get('placas', '')
-                modalidad = primera_fila.get('modalidad', '')
-                clase_exp_final = primera_fila.get('clase_expedicion', '')
-                fch_checklist = str(primera_fila.get('fch_checklist', ''))
-                origen_programado = primera_fila.get('origen_datos', '')
-
-                # Reconstruir la lista de diccionarios de remisiones y materiales requerida por SAP/WS
-                remisiones_dict = {}
-                for _, row in grupo.iterrows():
-                    rem = str(row['remision'])
-                    if rem not in remisiones_dict:
-                        remisiones_dict[rem] = {
-                            'remision': rem,
-                            'clase_entrega': str(row.get('clase_entrega', '')),
-                            'materiales': []
-                        }
-                    remisiones_dict[rem]['materiales'].append({
-                        'cen_exp': str(row.get('c_exp', '')),
-                        'peso_ton': float(row.get('ton', 0.0)),
-                        'material': str(row.get('material_cod', '')),
-                        'gpo_material': str(row.get('gpo_material', ''))
-                    })
-                remisiones = list(remisiones_dict.values())
-
-                # 3. Por cada fila, intentar Robot SAP / WS CloudFort.
-                exito_sincronizacion = False
-                transporte_generado = ""
-
-                # ----------------------------------------------------------------
-                # MODO A: WEB SERVICE (CAMA PUESTA PARA EL FUTURO)
-                # ----------------------------------------------------------------
-                if "Web Service" in origen_programado:
-                    print(f"📡 [API CF] Registrando contingencia {ticket_id} vía Web Service")
-                    
-                    # TODO: Implementar en manager_cloudfort.py
-                    # resultado_kiosko = self.cloudfort_manager.crear_folio_bascula(...)
-                    # no_transporte = self.cloudfort_manager.crear_transporte(...)
-                    # transporte_generado = str(no_transporte).strip()
-                    
-                    exito_sincronizacion = True # Simulado hasta tener WS
-
-                # ----------------------------------------------------------------
-                # MODO B: ROBOT SAP (DEFAULT / ACTUAL)
-                # ----------------------------------------------------------------
-                elif self.sap_manager.validar_conexion():
-                    print(f"🤖 [SAP] Iniciando sincronización de {ticket_id} en Kiosko")
-                    
-                    # Crear Folio
-                    resultado_kiosko = self.sap_manager.crear_folio_bascula(
-                        remisiones=remisiones,
-                        centro_expedicion=centro,
-                        tipo_remision=clase_entrega, 
-                        operador=operador,
-                        placas=placas,
-                        modalidad=modalidad
-                    )
-                    print(f"✅ [SAP] Folio creado en background: {resultado_kiosko}")
-
-                    # ⏳ PREVENCIÓN DEL ERROR COM (-2147483638): Dormimos el script medio segundo
-                    time.sleep(0.5)
-
-                    # Crear Transporte
-                    print(f"🤖 [SAP] Creando transporte en VT01N para {ticket_id}...")
-                    no_transporte = self.sap_manager.crear_transporte(
-                        remisiones=remisiones,
-                        centro_expedicion=centro,
-                        modalidad=modalidad,
-                        operador=operador,
-                        placas=placas,
-                        clase_expedicion_f=clase_exp_final, 
-                        fecha_checklist=fch_checklist
-                    )
-
-                    if no_transporte and str(no_transporte).strip().startswith("48"):
-                        transporte_generado = str(no_transporte).strip()
-                        exito_sincronizacion = True
-                        print(f"✅ [SAP] Transporte creado en background: {transporte_generado}")
-                    else:
-                        print(f"❌ [SAP] Transporte inválido generado: {no_transporte}")
-                else:
-                    print("⚠️ [SYNC] SAP no está conectado. Se intentará en el siguiente ciclo.")
-
-                # 4. Si es exitoso, cambiar estatus a 'CERRADO' y sobrescribir Excel.
-                if exito_sincronizacion:
-                    df.loc[df['ticket'] == ticket_id, 'estatus_contingencia'] = 'CERRADO'
-                    
-                    if transporte_generado:
-                        df.loc[df['ticket'] == ticket_id, 'transporte'] = transporte_generado
-                        
-                    hubo_cambios = True
-                    print(f"🎉 [SYNC] Ticket {ticket_id} cerrado exitosamente.")
-
+                df = pd.read_excel(ruta_excel, engine='openpyxl')
             except Exception as e:
-                print(f"❌ [SYNC] Error procesando ticket pendiente {ticket_id}: {e}")
+                print(f"❌ [SYNC] Error leyendo excel de arribos: {e}")
+                return
 
-            # Sobrescribir el archivo completo solo si logramos sincronizar al menos uno
+            pendientes = df[df['estatus_contingencia'] == 'PENDIENTE']
+
+            if pendientes.empty:
+                print("✅ [SYNC] No hay contingencias pendientes.")
+                self.mostrar_mensaje_estado("✅ [SYNC] Contingencias al día.", True)
+                return
+
+            tickets_pendientes = pendientes.groupby('ticket')
+            hubo_cambios = False
+
+            for ticket_id, grupo in tickets_pendientes:
+                try:
+                    print(f"🚀 [SYNC] Procesando ticket contingencia: {ticket_id}")
+                    self.mostrar_mensaje_estado(f"🔄 Sincronizando arribo pendiente: {ticket_id}", True)
+                    
+                    primera_fila = grupo.iloc[0]
+                    
+                    centro = primera_fila.get('c_exp', 'MX47')
+                    clase_entrega = primera_fila.get('clase_entrega', '')
+                    operador = primera_fila.get('operador', '')
+                    placas = primera_fila.get('placas', '')
+                    modalidad = primera_fila.get('modalidad', '')
+                    clase_exp_final = primera_fila.get('clase_expedicion', '')
+                    fch_checklist = str(primera_fila.get('fch_checklist', ''))
+                    origen_programado = primera_fila.get('origen_datos', '')
+
+                    remisiones_dict = {}
+                    for _, row in grupo.iterrows():
+                        rem = str(row['remision'])
+                        if rem not in remisiones_dict:
+                            remisiones_dict[rem] = {
+                                'remision': rem,
+                                'clase_entrega': str(row.get('clase_entrega', '')),
+                                'materiales': []
+                            }
+                        remisiones_dict[rem]['materiales'].append({
+                            'cen_exp': str(row.get('c_exp', '')),
+                            'peso_ton': float(row.get('ton', 0.0)),
+                            'material': str(row.get('material_cod', '')),
+                            'gpo_material': str(row.get('gpo_material', ''))
+                        })
+                    remisiones = list(remisiones_dict.values())
+
+                    exito_sincronizacion = False
+                    transporte_generado = ""
+
+                    if "Web Service" in origen_programado:
+                        print(f"📡 [API CF] Registrando contingencia {ticket_id} vía Web Service")
+                        exito_sincronizacion = True
+
+                    elif self.sap_manager.validar_conexion():
+                        print(f"🤖 [SAP] Iniciando sincronización de {ticket_id} en Kiosko")
+                        
+                        resultado_kiosko = self.sap_manager.crear_folio_bascula(
+                            remisiones=remisiones,
+                            centro_expedicion=centro,
+                            tipo_remision=clase_entrega, 
+                            operador=operador,
+                            placas=placas,
+                            modalidad=modalidad
+                        )
+                        print(f"✅ [SAP] Folio creado en background: {resultado_kiosko}")
+
+                        time.sleep(0.5)
+
+                        print(f"🤖 [SAP] Creando transporte en VT01N para {ticket_id}...")
+                        no_transporte = self.sap_manager.crear_transporte(
+                            remisiones=remisiones,
+                            centro_expedicion=centro,
+                            modalidad=modalidad,
+                            operador=operador,
+                            placas=placas,
+                            clase_expedicion_f=clase_exp_final, 
+                            fecha_checklist=fch_checklist
+                        )
+
+                        if no_transporte and str(no_transporte).strip().startswith("48"):
+                            transporte_generado = str(no_transporte).strip()
+                            exito_sincronizacion = True
+                            print(f"✅ [SAP] Transporte creado en background: {transporte_generado}")
+                        else:
+                            print(f"❌ [SAP] Transporte inválido generado: {no_transporte}")
+                    else:
+                        print("⚠️ [SYNC] SAP no está conectado. Se intentará en el siguiente ciclo.")
+
+                    if exito_sincronizacion:
+                        df.loc[df['ticket'] == ticket_id, 'estatus_contingencia'] = 'CERRADO'
+                        if transporte_generado:
+                            df.loc[df['ticket'] == ticket_id, 'transporte'] = transporte_generado
+                        hubo_cambios = True
+                        print(f"🎉 [SYNC] Ticket {ticket_id} cerrado exitosamente.")
+
+                except Exception as e:
+                    print(f"❌ [SYNC] Error procesando ticket pendiente {ticket_id}: {e}")
+
             if hubo_cambios:
                 try:
                     df.to_excel(ruta_excel, index=False, engine='openpyxl')
@@ -1667,6 +1652,11 @@ class AppWindow(QMainWindow):
                     self.mostrar_mensaje_estado("✅ Contingencias sincronizadas con SAP.", True)
                 except Exception as e:
                     print(f"❌ [SYNC] Error crítico al sobrescribir {ruta_excel}: {e}")
+
+        self.sap_manager.ejecutar_o_encolar(
+            "Sincronización de Contingencias SAP",
+            _tarea_sincronizar_contingencias
+        )
 
 
 if __name__ == "__main__":

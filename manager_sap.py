@@ -6,7 +6,11 @@ import time, datetime
 import threading
 import pythoncom
 import re
-from typing import Optional
+import ctypes
+from collections import deque
+from contextlib import contextmanager
+from functools import wraps
+from typing import Optional, Callable, Any
 from PyQt5.QtCore import QObject, pyqtSignal
 from catalogos import CATALOGO_MATERIALES
 
@@ -17,10 +21,42 @@ class SAPError(Exception):
     """Excepción personalizada para errores de negocio en SAP."""
     pass
 
+
+def tunel_sap(nombre_tarea: str = ""):
+    """
+    Decorador que asegura que cualquier función de SAPScripting se ejecute
+    en Modo Túnel (una sola tarea a la vez en orden FIFO).
+    """
+    def decorador(func: Callable):
+        etiqueta = nombre_tarea or func.__name__
+
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            with self.tunel(etiqueta):
+                return func(self, *args, **kwargs)
+        return wrapper
+    return decorador
+
+
 class SAPManager:
     """
-    Clase para gestionar la conexión con SAP GUI y mantener la sesión viva.
+    Clase para gestionar la conexión con SAP GUI, mantener la sesión viva y
+    orquestar una Fila Virtual en Modo Túnel para evitar colisiones en SAPScripting.
     """
+    # ==========================================================================
+    # ESTADO COMPARTIDO DE TÚNEL Y FILA VIRTUAL (NIVEL CLASE / PROCESO + OS)
+    # ==========================================================================
+    _cond_tunel = threading.Condition(threading.Lock())
+    _fila_hilos = deque()           # Cola FIFO de tickets (hilos esperando entrar al túnel)
+    _cola_diferida = deque()        # Cola FIFO de tareas diferidas (ej. QTimers disparados mientras SAP trabaja)
+    _drenando_cola = False          # Evita recursión al vaciar _cola_diferida
+    _hilo_propietario = None        # ID del hilo que actualmente tiene tomado el túnel
+    _profundidad_tunel = 0          # Permite llamadas anidadas legítimas (ej. crear_folio -> eliminar_transportista)
+    _tarea_activa = ""              # Nombre de la tarea que está usando SAP en este instante
+    _ultima_actividad_ts = 0.0      # Timestamp de la última operación SAP completada
+    _os_mutex_handle = None         # Mutex de Windows para sincronizar múltiples procesos (.exe/.py)
+    _seq_ticket = 0
+
     def __init__(self):
         # Bandera para controlar la detención del hilo Keep-Alive
         self.stop_thread = False
@@ -29,36 +65,177 @@ class SAPManager:
         # Referencia a la sesión (no se almacena persistentemente, solo se usa temporalmente)
         self.session = None
         # Inicializar el emisor de señales
-        self.emitter = SignalEmitter() 
+        self.emitter = SignalEmitter()
 
-    def acceder_a_transaccion(self, session, transaccion: str) -> bool:
-        """
-        Intenta ingresar a una transacción de SAP y valida si el usuario tiene permisos.
-        """
+    # ==========================================================================
+    # MODO TÚNEL Y FILA VIRTUAL DE EJECUCIÓN SAP
+    # ==========================================================================
+    @classmethod
+    def esta_ocupado(cls) -> bool:
+        """Indica si el túnel de SAP está siendo utilizado actualmente."""
+        with cls._cond_tunel:
+            return cls._profundidad_tunel > 0
+
+    @classmethod
+    def tarea_en_curso(cls) -> str:
+        """Devuelve el nombre de la tarea que está ejecutándose actualmente en el túnel."""
+        with cls._cond_tunel:
+            return cls._tarea_activa
+
+    @classmethod
+    def _adquirir_mutex_os(cls):
+        """Adquiere un Named Mutex de Windows para evitar colisiones entre procesos distintos (ej. Arribos + Báscula)."""
         try:
-            # 1. Ejecutar el comando para ir a la transacción
-            session.findById("wnd[0]/tbar[0]/okcd").text = f"/n {transaccion}"
-            session.findById("wnd[0]").sendVKey(0)
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.CreateMutexW(None, False, "Local\\CementosFortaleza_SAPScripting_Tunnel")
+            if handle:
+                # WAIT_OBJECT_0 (0) o WAIT_ABANDONED (0x80), timeout 120 seg (120000 ms)
+                kernel32.WaitForSingleObject(handle, 120000)
+                cls._os_mutex_handle = handle
+        except Exception:
+            pass
 
-            # 2. Leer la barra de estado (sbar)
-            sap_msg = session.findById("wnd[0]/sbar").text
-            
-            # 3. Validar mensajes de error de Basis/Permisos
-            # En Python usamos una lista para poder agregar más errores fácilmente en el futuro
-            errores_acceso = ["Falta autorización", "La transacción", "No tiene autorización"]
-            
-            if any(error in sap_msg for error in errores_acceso):
-                # Si detecta que no hay permiso, lanzamos un SAPError para que el Kiosko lo atrape
-                raise SAPError(f"Acceso denegado a {transaccion}: {sap_msg}")
-            
-            return True
-            
-        except Exception as e:
-            # Si el error ya es nuestro SAPError controlado, lo dejamos pasar hacia arriba
-            if isinstance(e, SAPError):
-                raise e
-            # Si es un error de conexión, lo empaquetamos
-            raise SAPError(f"Error técnico al intentar abrir {transaccion}: {e}")
+    @classmethod
+    def _liberar_mutex_os(cls):
+        """Libera el Named Mutex de Windows."""
+        try:
+            if cls._os_mutex_handle:
+                kernel32 = ctypes.windll.kernel32
+                kernel32.ReleaseMutex(cls._os_mutex_handle)
+                kernel32.CloseHandle(cls._os_mutex_handle)
+                cls._os_mutex_handle = None
+        except Exception:
+            pass
+
+    @contextmanager
+    def tunel(self, nombre_tarea: str = "Operación SAP"):
+        """
+        Context manager de Modo Túnel con Fila Virtual FIFO.
+        Garantiza que solo una actividad controle SAP GUI a la vez, formando en fila
+        cualquier solicitud subsecuente hasta que la tarea actual termine.
+        """
+        cls = self.__class__
+        tid = threading.get_ident()
+        es_entrada_raiz = False
+        tarea_anterior = ""
+
+        with cls._cond_tunel:
+            if cls._hilo_propietario == tid and cls._profundidad_tunel > 0:
+                # Llamada anidada dentro de la misma operación activa (ej. crear_folio -> eliminar_transportista)
+                cls._profundidad_tunel += 1
+                tarea_anterior = cls._tarea_activa
+                cls._tarea_activa = f"{tarea_anterior} -> {nombre_tarea}"
+            else:
+                # Nueva tarea: se forma en la Fila Virtual FIFO
+                es_entrada_raiz = True
+                cls._seq_ticket += 1
+                mi_ticket = (cls._seq_ticket, tid, nombre_tarea)
+                cls._fila_hilos.append(mi_ticket)
+                posicion = len(cls._fila_hilos)
+
+                if cls._profundidad_tunel > 0 or posicion > 1:
+                    print(
+                        f"⏳ [FILA VIRTUAL SAP] '{nombre_tarea}' en espera "
+                        f"(Turno #{posicion}, en curso: '{cls._tarea_activa or ' Liberando...'}')."
+                    )
+
+                # Esperar turno estricto en la cabeza de la fila y que el túnel esté libre
+                while cls._profundidad_tunel > 0 or cls._fila_hilos[0][0] != mi_ticket[0]:
+                    cls._cond_tunel.wait(timeout=1.0)
+
+                # Turno asignado: salir de la fila de espera y tomar el túnel
+                cls._fila_hilos.popleft()
+                cls._hilo_propietario = tid
+                cls._profundidad_tunel = 1
+                cls._tarea_activa = nombre_tarea
+
+        if es_entrada_raiz:
+            # Sincronización inter-proceso a nivel Sistema Operativo
+            cls._adquirir_mutex_os()
+            print(f"🚇 [TÚNEL SAP] ▶ Iniciando: '{nombre_tarea}'")
+
+        try:
+            yield
+        finally:
+            cls._ultima_actividad_ts = time.time()
+            ejecutar_diferidas = False
+
+            if es_entrada_raiz:
+                print(f"🚇 [TÚNEL SAP] ⏹ Finalizó: '{nombre_tarea}'")
+                cls._liberar_mutex_os()
+
+            with cls._cond_tunel:
+                cls._profundidad_tunel -= 1
+                if cls._profundidad_tunel <= 0:
+                    cls._profundidad_tunel = 0
+                    cls._hilo_propietario = None
+                    cls._tarea_activa = ""
+                    cls._cond_tunel.notify_all()
+                    if cls._cola_diferida and not cls._drenando_cola:
+                        ejecutar_diferidas = True
+                else:
+                    cls._tarea_activa = tarea_anterior
+
+            # Si se encolaron tareas diferidas (ej. QTimers de robots mientras la GUI operaba SAP),
+            # las despachamos una por una en orden FIFO al liberarse el túnel.
+            if ejecutar_diferidas:
+                self._procesar_cola_diferida()
+
+    def ejecutar_o_encolar(self, nombre_tarea: str, funcion: Callable, *args, **kwargs) -> Any:
+        """
+        Ideal para Robots y Timers de interfaz (QTimer):
+        - Si el túnel SAP está libre, ejecuta la tarea de inmediato dentro del túnel.
+        - Si el túnel SAP está ocupado (ej. el operador está registrando un arribo o llamando unidades
+          y un QTimer se disparó durante QApplication.processEvents()), NO interrumpe a SAP:
+          forma la tarea en la Fila Virtual (_cola_diferida) para ejecutarla automáticamente
+          en cuanto concluya la actividad actual.
+        """
+        cls = self.__class__
+        with cls._cond_tunel:
+            ocupado = cls._profundidad_tunel > 0 or len(cls._fila_hilos) > 0
+            if ocupado:
+                # Evitar duplicar exactamente la misma tarea periódica en la fila de espera
+                ya_encolada = any(item[0] == nombre_tarea for item in cls._cola_diferida)
+                if not ya_encolada:
+                    cls._cola_diferida.append((nombre_tarea, funcion, args, kwargs))
+                    pos = len(cls._cola_diferida)
+                    print(
+                        f"⏳ [FILA VIRTUAL SAP] Tarea '{nombre_tarea}' formada en cola (Posición #{pos}) "
+                        f"porque SAP está ocupado con '{cls._tarea_activa}'."
+                    )
+                else:
+                    print(f"⏭️ [FILA VIRTUAL SAP] '{nombre_tarea}' ya se encuentra formada en la fila de espera.")
+                return None
+
+        # Si el túnel está libre, se ejecuta inmediatamente dentro del túnel
+        with self.tunel(nombre_tarea):
+            return funcion(*args, **kwargs)
+
+    def _procesar_cola_diferida(self):
+        """Despacha en orden FIFO todas las tareas que se formaron en la fila virtual mientras SAP estaba ocupado."""
+        cls = self.__class__
+        with cls._cond_tunel:
+            if cls._drenando_cola:
+                return
+            cls._drenando_cola = True
+
+        try:
+            while True:
+                with cls._cond_tunel:
+                    if not cls._cola_diferida or cls._profundidad_tunel > 0:
+                        break
+                    nombre_tarea, funcion, args, kwargs = cls._cola_diferida.popleft()
+                    restantes = len(cls._cola_diferida)
+
+                print(f"▶️ [FILA VIRTUAL SAP] Despachando tarea encolada: '{nombre_tarea}' (Pendientes en fila: {restantes})")
+                try:
+                    with self.tunel(nombre_tarea):
+                        funcion(*args, **kwargs)
+                except Exception as e_cola:
+                    print(f"⚠️ [FILA VIRTUAL SAP] Error ejecutando tarea encolada '{nombre_tarea}': {e_cola}")
+        finally:
+            with cls._cond_tunel:
+                cls._drenando_cola = False
 
     def obtener_sesion(self) -> Optional[win32com.client.Dispatch]:
         """
@@ -92,6 +269,35 @@ class SAPManager:
         except Exception as e:
             # print(f"Debug: No se pudo conectar a SAP: {e}") 
             return None
+
+    def acceder_a_transaccion(self, session, transaccion: str) -> bool:
+        """
+        Intenta ingresar a una transacción de SAP y valida si el usuario tiene permisos.
+        """
+        try:
+            # 1. Ejecutar el comando para ir a la transacción
+            session.findById("wnd[0]/tbar[0]/okcd").text = f"/n {transaccion}"
+            session.findById("wnd[0]").sendVKey(0)
+
+            # 2. Leer la barra de estado (sbar)
+            sap_msg = session.findById("wnd[0]/sbar").text
+            
+            # 3. Validar mensajes de error de Basis/Permisos
+            # En Python usamos una lista para poder agregar más errores fácilmente en el futuro
+            errores_acceso = ["Falta autorización", "La transacción", "No tiene autorización"]
+            
+            if any(error in sap_msg for error in errores_acceso):
+                # Si detecta que no hay permiso, lanzamos un SAPError para que el Kiosko lo atrape
+                raise SAPError(f"Acceso denegado a {transaccion}: {sap_msg}")
+            
+            return True
+            
+        except Exception as e:
+            # Si el error ya es nuestro SAPError controlado, lo dejamos pasar hacia arriba
+            if isinstance(e, SAPError):
+                raise e
+            # Si es un error de conexión, lo empaquetamos
+            raise SAPError(f"Error técnico al intentar abrir {transaccion}: {e}")
 
     def validar_conexion(self) -> bool:
         """
@@ -135,30 +341,38 @@ class SAPManager:
                     return
                 time.sleep(1)
             
-            # Tiempo cumplido: Mandar ping a SAP
-            session = self.obtener_sesion()
-            if session:
-                try:
-                    session.findById("wnd[0]/tbar[0]/okcd").Text = "/n"
-                    session.findById("wnd[0]").sendVKey(0) #(Enter)
-                    
-                    self.emitter.keep_alive_signal.emit ("Conexión con SAP exitosa. Keep-Alive enviado.", 
-                        "green"
-                        )
-                    print(f"✅ [{time.strftime('%H:%M:%S')}] Keep-Alive enviado a SAP (/n)")
-                except Exception as e:
-                    self.emitter.keep_alive_signal.emit("Falla al enviar Keep-Alive. SAP puede estar ocupado o desconectado.", 
-                                                        "orange")
-                    print(f"Error al enviar Keep-Alive: {e}")
-                    pass # Silenciamos errores si SAP está ocupado en ese instante
-            else:
-                self.emitter.keep_alive_signal.emit("ADVERTENCIA: SAP GUI no detectado. Keep-Alive no se pudo enviar.",
-                                                    "red")
-                print(f"[{time.strftime('%H:%M:%S')}] SAP no detectado. Reintentando en {minutos} min...")
+            # Si SAP está ocupado en el túnel o tuvo actividad reciente (< 80% del intervalo),
+            # omitimos el Keep-Alive para no interrumpir transacciones en curso.
+            if self.esta_ocupado() or (time.time() - self.__class__._ultima_actividad_ts) < (segundos * 0.8):
+                print(f"⏭️ [{time.strftime('%H:%M:%S')}] Keep-Alive omitido (SAP tuvo actividad reciente o está en uso).")
+                continue
+
+            # Tiempo cumplido y sin actividad reciente: Mandar ping a SAP dentro del túnel
+            with self.tunel("Keep-Alive (/n)"):
+                session = self.obtener_sesion()
+                if session:
+                    try:
+                        session.findById("wnd[0]/tbar[0]/okcd").Text = "/n"
+                        session.findById("wnd[0]").sendVKey(0) #(Enter)
+                        
+                        self.emitter.keep_alive_signal.emit ("Conexión con SAP exitosa. Keep-Alive enviado.", 
+                            "green"
+                            )
+                        print(f"✅ [{time.strftime('%H:%M:%S')}] Keep-Alive enviado a SAP (/n)")
+                    except Exception as e:
+                        self.emitter.keep_alive_signal.emit("Falla al enviar Keep-Alive. SAP puede estar ocupado o desconectado.", 
+                                                            "orange")
+                        print(f"Error al enviar Keep-Alive: {e}")
+                        pass # Silenciamos errores si SAP está ocupado en ese instante
+                else:
+                    self.emitter.keep_alive_signal.emit("ADVERTENCIA: SAP GUI no detectado. Keep-Alive no se pudo enviar.",
+                                                        "red")
+                    print(f"[{time.strftime('%H:%M:%S')}] SAP no detectado. Reintentando en {minutos} min...")
 
     # ==============================================================================
     # Extraer Datos de Remisión
     # ==============================================================================
+    @tunel_sap("VL03N: Extraer Datos Remisión")
     def extraer_datos_remision(self, num_remision: str) -> Optional[dict]:
         """
         Traducción de Extraer datos de remision SAP GUI Scripting.
@@ -397,7 +611,6 @@ class SAPManager:
                     # o si es un error fatal, el break de arriba ya actuó.
                     break
 
-            self.emitter.keep_alive_signal.emit("Información obtenida correctamente", "green")
             print(f"✅ Informacion extraida correctamente")
             return {
 
@@ -438,6 +651,7 @@ class SAPManager:
     # ==============================================================================
     # ELIMINAR TRANSPORTISTA (Requisito previo)
     # ==============================================================================
+    @tunel_sap("VL02N: Eliminar Transportista")
     def eliminar_transportista(self, remision: str):
         """
         Entra a la VL02N y elimina el interlocutor 'Transportista' si existe.
@@ -492,6 +706,7 @@ class SAPManager:
     # ==============================================================================
     # CREAR FOLIO BÁSCULA (Lógica Principal)
     # ==============================================================================
+    @tunel_sap("ZSDMX1270/1109: Crear Folio Báscula")
     def crear_folio_bascula(self, remisiones: list, centro_expedicion: str, 
                             tipo_remision: str, operador: str, placas: str, modalidad: str) -> str:
         """
@@ -750,6 +965,7 @@ class SAPManager:
     # ==============================================================================
     # 4. CREAR TRANSPORTE (VT01N)
     # ==============================================================================
+    @tunel_sap("VT01N: Crear Transporte")
     def crear_transporte(self, remisiones: list, centro_expedicion: str, 
                          modalidad: str, operador: str, placas: str, 
                          clase_expedicion_f: str, fecha_checklist: str = "") -> str:
@@ -975,6 +1191,7 @@ class SAPManager:
     # ==============================================================================
     # 5. MODIFICAR TRANSPORTE (VT02N) - DINÁMICO POR DICCIONARIO
     # ==============================================================================
+    @tunel_sap("VT02N: Modificar Transporte")
     def modificar_transporte(self, num_transporte: str, data: dict) -> bool:
         """
         Ingresa a la VT02N, modifica los campos recibidos en el diccionario 'data',
@@ -1066,22 +1283,25 @@ class SAPManager:
             ]
 
             if any(exito in msg_bar.lower() for exito in mensajes_exito):
-                self.emitter.keep_alive_signal.emit(f"Transporte {num_transporte} actualizado.", "green")
+                #self.emitter.keep_alive_signal.emit(f"Transporte {num_transporte} actualizado.", "green")
                 return True
             else:
                 # Si SAP devuelve otro mensaje inesperado, lo reportamos para escucharlo en el log
+                #self.emitter.keep_alive_signal.emit(f"Respuesta inesperada al guardar {num_transporte}: '{msg_bar}'", "red")
                 raise SAPError(f"Respuesta inesperada al guardar {num_transporte}: '{msg_bar}'")
 
         except SAPError as e:
-            self.emitter.keep_alive_signal.emit(f"Error SAP en VT02N: {e}", "red")
+            #self.emitter.keep_alive_signal.emit(f"Error SAP en VT02N: {e}", "red")
             raise e
+        
         except Exception as e:
-            self.emitter.keep_alive_signal.emit("Falla técnica en VT02N", "red")
+            #self.emitter.keep_alive_signal.emit("Falla técnica en VT02N", "red")
             raise SAPError(f"Error técnico modificando transporte {num_transporte}: {e}")
 
     # ==============================================================================
     # 6. IMPRIMIR PICKING (VL02N)
     # ==============================================================================
+    @tunel_sap("VL02N: Imprimir Picking")
     def imprimir_picking(self, remisiones: list, centro_expedicion: str):
         """
         Entra a la VL02N, busca el mensaje 'Picking Elementia' y lo imprime.
@@ -1309,11 +1529,12 @@ class SAPManager:
     # ==============================================================================
     # MOTOR DE DESCARGAS Y ROBOT ORQUESTADOR ZSDMX389
     # ==============================================================================
-    def zsdmx389_descargar_archivos(self, path_descarga: str, nom_archivo: str, extencion: str = "csv",
-                                    fch_in: str = "", fch_fn: str = "", 
-                                    org_vta: str = "0152", can_dis: str = "16", 
-                                    filtro_transporte: str = "", 
-                                    descargar: bool = True) -> dict: 
+    @tunel_sap("ZSDMX389: Descarga Reporte")
+    def zsdmx389(self, path_descarga: str, nom_archivo: str, extencion: str = "csv",
+                 fch_in: str = "01.01.2026", fch_fn: str = "31.12.2026", 
+                 org_vta: str = "0152", can_dis: str = "16", 
+                 filtro_transporte: str = "", 
+                 descargar: bool = True) -> dict: 
         """
         Motor para ejecutar la transacción ZSDMX389.
         filtro_transporte acepta: 'DIF_C' (Excluir C), 'IGUAL_C' (Solo C), Vacio no toma el filtro.
@@ -1398,12 +1619,19 @@ class SAPManager:
             
             # --- 6. EXPORTAR ARCHIVO (MODULAR) ---
             if descargar:
-                return self._exportar_archivo_sap(
-                    session=session,
-                    path_descarga=path_descarga,
-                    nom_archivo=nom_archivo,
-                    extension=extencion  # Si corriges el nombre en la firma a 'extension', actualízalo aquí también
-                )
+                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[2]").select()
+                if session.Children.Count > 1:
+                    return self._exportar_archivo_sap(
+                        session=session,
+                        path_descarga=path_descarga,
+                        nom_archivo=nom_archivo,
+                        extension=extencion  # Si corriges el nombre en la firma a 'extension', actualízalo aquí también
+                    )
+                else:
+                    return {
+                        "estatus": False,
+                        "msg": "No se abrió la ventana de exportación en ZSDMX389."
+                    }
             else:
                 return {
                     "estatus": True,
@@ -1416,9 +1644,10 @@ class SAPManager:
                 "msg": f"Falla interna ejecutando ZSDMX389: {e}"
             }
 
-    def zsdmx267_descargar_archivos(self, path_descarga: str, nom_archivo: str, extension: str, 
-                                    fch_in: str, fch_fn: str, lay_out: str = "",
-                                    centro_exp: str = "*", descargar: bool = True) -> dict:
+    @tunel_sap("ZSDMX267: Descarga Reporte")
+    def zsdmx267(self, path_descarga: str, nom_archivo: str, extension: str = "csv",  
+                 fch_in: str = "", fch_fn: str = "", lay_out: str = "",
+                 centro_exp: str = "*", descargar: bool = True) -> dict:
         """
         Ejecuta la transacción ZSDMX267, filtra por fechas y centro de expedición,
         asigna el layout indicado y descarga el archivo según la extensión.
@@ -1491,17 +1720,23 @@ class SAPManager:
                         session.findById("wnd[1]").sendVKey(12)
 
             #ajuste optimo de columnas para resolver perdida de datos
-            session.findById("wnd[0]/mbar/menu[3]/menu[1]/menu[0]").select
+            session.findById("wnd[0]/mbar/menu[3]/menu[1]/menu[0]").select()
             
             # 6. Descarga delegada al método modular
             if descargar:
-                resultado_descarga = self._exportar_archivo_sap(
-                    session=session,
-                    path_descarga=path_descarga,
-                    nom_archivo=nom_archivo,
-                    extension=extension
-                )
-                return resultado_descarga
+                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[2]").select()
+                if session.Children.Count > 1:
+                    return self._exportar_archivo_sap(
+                        session=session,
+                        path_descarga=path_descarga,
+                        nom_archivo=nom_archivo,
+                        extension=extension
+                    )
+                else:
+                    return {
+                        "estatus": False,
+                        "msg": "No se abrió la ventana de exportación en ZSDMX267."
+                    }
             else:
                 return {"estatus": True, "msg": "Reporte ejecutado sin solicitar descarga."}
 
@@ -1511,6 +1746,7 @@ class SAPManager:
                 "msg": f"Falla interna ejecutando ZSDMX267: {e}"
             }
 
+    @tunel_sap("ZSDMX249: Descarga Reporte")
     def zsdmx249(self, path_descarga: str, nom_archivo: str, extension: str = "csv",
                  fch_in_sm_real: str = "", fch_fn_sm_real: str = "",
                  lay_out: str = "/ZQL_REPORT", org_vta: str = "0152",
@@ -1563,12 +1799,19 @@ class SAPManager:
 
             # 5. Descarga delegada al método modular (_exportar_archivo_sap)
             if descargar:
-                return self._exportar_archivo_sap(
-                    session=session,
-                    path_descarga=path_descarga,
-                    nom_archivo=nom_archivo,
-                    extension=extension
-                )
+                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[2]").select()
+                if session.Children.Count > 1:
+                    return self._exportar_archivo_sap(
+                        session=session,
+                        path_descarga=path_descarga,
+                        nom_archivo=nom_archivo,
+                        extension=extension
+                    )
+                else:
+                    return {
+                        "estatus": False,
+                        "msg": "No se abrió la ventana de exportación en ZSDMX249."
+                    }
             else:
                 return {"estatus": True, "msg": "Reporte ZSDMX249 ejecutado sin solicitar descarga."}
 
@@ -1576,6 +1819,182 @@ class SAPManager:
             return {
                 "estatus": False,
                 "msg": f"Falla interna ejecutando ZSDMX249: {e}"
+            }
+
+    @tunel_sap("VT16: Descarga Reporte")
+    def vt16(self, path_descarga: str, nom_archivo: str, extension: str = "csv",
+             fch_in: str = "", fch_fn: str = "", centro_exp: str = "",
+             status_global_in: str = "1", status_global_fn: str = "7",
+             lay_out: str = "/HORARIOS_FZ", descargar: bool = True) -> dict:
+        """
+        Ejecuta la transacción VT16 para ver transportes creados,
+        filtra por estatus global, fechas de creación y centro de expedición,
+        selecciona el layout indicado y exporta el archivo.
+        """
+        session = self.obtener_sesion()
+        if not session:
+            return {"estatus": False, "msg": "No hay sesión abierta en SAP para ejecutar VT16."}
+
+        try:
+            # --- 1. NAVEGACIÓN INICIAL ---
+            self.acceder_a_transaccion(session, "VT16")
+
+            # Manejo de posible popup inicial
+            if session.Children.Count > 1:
+                session.findById("wnd[1]").sendVKey(0)
+
+            # --- 2. ESTATUS GLOBAL (REGLA DE NEGOCIO: 0 AL 5) ---
+            session.findById("wnd[0]/usr/ctxtK_STTRG-LOW").text = status_global_in
+            session.findById("wnd[0]/usr/ctxtK_STTRG-HIGH").text = status_global_fn
+
+            # --- 3. FECHAS Y CENTRO ---
+            session.findById("wnd[0]/usr/ctxtK_ERDAT-LOW").text = fch_in
+            session.findById("wnd[0]/usr/ctxtK_ERDAT-HIGH").text = fch_fn
+            if centro_exp:  # Solo si se manda el centro
+                session.findById("wnd[0]/usr/ctxtK_TPLST-LOW").text = centro_exp
+
+            # Ejecutar reporte (F8)
+            session.findById("wnd[0]").sendVKey(8)
+
+            # Validar si SAP dice "No existe ningún transporte..."
+            if session.Children.Count > 1:
+                try:
+                    mensaje_popup = session.findById("wnd[1]/usr/txtMESSTXT1").text
+                    if "No existe" in mensaje_popup or "ningún" in mensaje_popup:
+                        session.findById("wnd[1]").sendVKey(0)  # Cerramos el popup
+                        return {
+                            "estatus": False,
+                            "msg": f"VT16: No se encontraron transportes en este rango ({mensaje_popup.strip()})."
+                        }
+                except Exception:
+                    pass
+
+            mensaje_status = session.findById("wnd[0]/sbar").text.strip().lower()
+            if "no existen datos" in mensaje_status or "no data" in mensaje_status or "no existe" in mensaje_status:
+                return {
+                    "estatus": False,
+                    "msg": f"La transacción VT16 no arrojó resultados: {mensaje_status}"
+                }
+
+            # --- 4. SELECCIONAR LAYOUT (/HORARIOS_FZ) ---
+            if lay_out:
+                try:
+                    # Seleccionar menú de Layout
+                    session.findById("wnd[0]/mbar/menu[3]/menu[0]/menu[1]").select()
+
+                    layout_encontrado = False
+
+                    # Buscar dinámicamente en la lista (Filas 3 a 100)
+                    for i in range(3, 100):
+                        try:
+                            lbl_id = f"wnd[1]/usr/lbl[1,{i}]"
+                            nombre_layout = session.findById(lbl_id).text.strip()
+                            if nombre_layout == lay_out:
+                                session.findById(lbl_id).setFocus()
+                                session.findById("wnd[1]").sendVKey(2)  # F2 / Doble clic (Seleccionar)
+                                layout_encontrado = True
+                                print(f"✅ Layout {lay_out} encontrado y aplicado (Fila {i}).")
+                                break
+                        except Exception:
+                            # Fin de la lista de layouts
+                            break
+
+                    if not layout_encontrado:
+                        print(f"⚠️ Layout {lay_out} no encontrado en la lista. Se exportará con el layout actual.")
+                        if session.Children.Count > 1:
+                            session.findById("wnd[1]").sendVKey(12)  # Cerrar la ventana de layouts (Cancelar)
+
+                except Exception as e:
+                    print(f"⚠️ Advertencia: Error abriendo menú de layouts. Se usará el actual. ({e})")
+                    if session.Children.Count > 1:
+                        session.findById("wnd[1]").sendVKey(12)  # Cancelar
+
+            # --- 5. EXPORTAR A EXCEL / CSV ---
+            if descargar:
+                # Menú: Lista -> Exportar -> Fichero Local (específico de lista clásica en VT16)
+                session.findById("wnd[0]/mbar/menu[0]/menu[9]/menu[2]").select()
+                if session.Children.Count > 1:
+                    return self._exportar_archivo_sap(
+                        session=session,
+                        path_descarga=path_descarga,
+                        nom_archivo=nom_archivo,
+                        extension=extension
+                    )
+                else:
+                    return {
+                        "estatus": False,
+                        "msg": "No se abrió la ventana de exportación en VT16."
+                    }
+            else:
+                return {"estatus": True, "msg": "Reporte VT16 ejecutado sin solicitar descarga."}
+
+        except Exception as e:
+            return {
+                "estatus": False,
+                "msg": f"Falla interna ejecutando VT16: {e}"
+            }
+
+    @tunel_sap("FBL4N: Descarga Reporte")
+    def fbl4n(self, path_descarga: str, nom_archivo: str, extension: str = "xls",
+              fch_in: str = "", fch_fn: str = "",
+              cta_mayor: str = "641211091", sociedad: str = "3022",
+              lay_out: str = "/ZQL_FLETES", descargar: bool = True) -> dict:
+        """
+        Ejecuta la transacción FBL4N (Partidas individuales de cuentas de mayor / Acreedores),
+        ingresa cuenta mayor, sociedad, rango de fechas de contabilización y layout antes de ejecutar,
+        y exporta el archivo mediante _exportar_archivo_sap.
+        """
+        session = self.obtener_sesion()
+        if not session:
+            return {"estatus": False, "msg": "No hay sesión abierta en SAP para ejecutar FBL4N."}
+
+        try:
+            # --- 1. NAVEGACIÓN INICIAL ---
+            self.acceder_a_transaccion(session, "FBL4N")
+
+            # --- 2. LLENAR CAMPOS Y LAYOUT ANTES DE EJECUTAR ---
+            session.findById("wnd[0]/usr/radX_AISEL").select()
+            session.findById("wnd[0]/usr/ctxtSD_SAKNR-LOW").text = cta_mayor
+            session.findById("wnd[0]/usr/ctxtSD_BUKRS-LOW").text = sociedad
+            session.findById("wnd[0]/usr/ctxtSO_BUDAT-LOW").text = fch_in
+            session.findById("wnd[0]/usr/ctxtSO_BUDAT-HIGH").text = fch_fn
+            if lay_out:
+                session.findById("wnd[0]/usr/ctxtPA_VARI").text = lay_out
+
+            # --- 3. EJECUTAR REPORTE (F8) ---
+            session.findById("wnd[0]").sendVKey(8)
+
+            # Validar si encontró datos en la barra de estado
+            mensaje_sap = session.findById("wnd[0]/sbar").text.strip()
+            if "se visualizan" not in mensaje_sap.lower():
+                return {
+                    "estatus": False,
+                    "msg": f"La transacción FBL4N no arrojó resultados: {mensaje_sap}"
+                }
+
+            # --- 4. EXPORTAR ARCHIVO (MODULAR) ---
+            if descargar:
+                # Menú Lista -> Exportar -> Hoja de cálculo
+                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[1]").select()
+                if session.Children.Count > 1:
+                    return self._exportar_archivo_sap(
+                        session=session,
+                        path_descarga=path_descarga,
+                        nom_archivo=nom_archivo,
+                        extension=extension
+                    )
+                else:
+                    return {
+                        "estatus": False,
+                        "msg": "No se abrió la ventana de exportación en FBL4N."
+                    }
+            else:
+                return {"estatus": True, "msg": "Reporte FBL4N ejecutado sin solicitar descarga."}
+
+        except Exception as e:
+            return {
+                "estatus": False,
+                "msg": f"Falla interna ejecutando FBL4N: {e}"
             }
 
     def _exportar_archivo_sap(self, session, path_descarga: str, nom_archivo: str, extension: str) -> dict:
@@ -1592,7 +2011,7 @@ class SAPManager:
         # -------------------------------------------------------------
         if ext in ["csv", "txt", "xls"]:
             #session.findById("wnd[0]").sendVKey(45)  # Acceso directo a Guardar Fichero Local
-            session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[2]").select()
+            #session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[2]").select()
             # Seleccionar opción de texto con tabuladores / no convertido
             try:
                 # Opción típica: radSPOPLI-SELFLAG[1,0] suele ser 'Texto con tabuladores'
@@ -1608,23 +2027,10 @@ class SAPManager:
         # CASO 2: XLSX (Open XLSX)
         # -------------------------------------------------------------
         elif ext in ["xlsx"]:
-            # Menú: Lista -> Exportar -> Hoja de cálculo
-            try:
-                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[1]").select()
-            except Exception:
-                # Alternativa por atajo en barra si el menú cambia de índice
-                session.findById("wnd[0]/tbar[1]/btn[43]").press()
-
             # Confirmación de formato si aparece ventana modal intermedia (XML, OpenOffice, MHTML, etc.)
             if session.Children.Count > 1:
-                # Si aparece selector de formato específico (ej. radio button de OpenOffice o XLSX)
                 try:
-                    if ext == "xlsx":
-                        # Formato XLSX estándar de SAP GUI en versiones recientes
-                        session.findById("wnd[1]/usr/radRB_1").select()
-                    elif ext == "xls":
-                        # Formato clásico MHTML o tabla HTML
-                        session.findById("wnd[1]/usr/radRB_OTHERS").select()
+                    session.findById("wnd[1]/usr/radRB_1").select()
                 except Exception:
                     pass  # Si no existen esos radio buttons, se acepta la opción default
                 
@@ -1654,167 +2060,3 @@ class SAPManager:
             return {"estatus": True, "msg": f"Descarga exitosa. {msg_bar}"}
         else:
             return {"estatus": False, "msg": f"Respuesta de SAP: {msg_bar}"}
-
-    def vt16(self, centro_exp: str, fch_in_crea: str, fch_fn_crea: str, 
-            path_descarga: str, nom_archivo: str, status_global_in: str, 
-            status_global_fn: str, lay_out: str = "/HORARIOS_FZ", descargar: bool = True) -> bool:
-        """
-        Ejecuta la transacción VT16 para ver transportes creados.
-        Filtra estatus global de transporte del 0 al 5.
-        """
-        session = self.obtener_sesion()
-        if not session:
-            raise Exception("No hay sesión abierta en SAP para ejecutar VT16.")
-            
-        try:
-            # --- 1. NAVEGACIÓN INICIAL ---
-            session.findById("wnd[0]/tbar[0]/okcd").text = "/nVT16"
-            session.findById("wnd[0]").sendVKey(0)
-            
-            # Manejo de posible popup inicial
-            if session.Children.Count > 1:
-                session.findById("wnd[1]").sendVKey(0)
-
-            # --- 2. ESTATUS GLOBAL (REGLA DE NEGOCIO: 0 AL 5) ---
-            session.findById("wnd[0]/usr/ctxtK_STTRG-LOW").text = status_global_in
-            session.findById("wnd[0]/usr/ctxtK_STTRG-HIGH").text = status_global_fn
-
-            # --- 3. FECHAS Y CENTRO ---
-            session.findById("wnd[0]/usr/ctxtK_ERDAT-LOW").text = fch_in_crea
-            session.findById("wnd[0]/usr/ctxtK_ERDAT-HIGH").text = fch_fn_crea
-            if centro_exp: # Solo si se manda el centro
-                session.findById("wnd[0]/usr/ctxtK_TPLST-LOW").text = centro_exp
-
-            # Ejecutar reporte (F8)
-            session.findById("wnd[0]").sendVKey(8)
-            
-            # Validar si SAP dice "No existe ningún transporte..."
-            if session.Children.Count > 1:
-                try:
-                    mensaje_popup = session.findById("wnd[1]/usr/txtMESSTXT1").text
-                    if "No existe" in mensaje_popup or "ningún" in mensaje_popup:
-                        session.findById("wnd[1]").sendVKey(0) # Cerramos el popup
-                        print("ℹ️ VT16: No se encontraron transportes en este rango.")
-                        return False
-                except:
-                    pass
-
-            # --- 4. SELECCIONAR LAYOUT (/HORARIOS_FZ) ---
-            try:
-                # Seleccionar menú de Layout
-                session.findById("wnd[0]/mbar/menu[3]/menu[0]/menu[1]").select()
-                
-                layout_encontrado = False
-                
-                # Buscar dinámicamente en la lista (Filas 1 a 100)
-                for i in range(3, 100):
-                    try:
-                        # Construimos el ID de la etiqueta dinámicamente
-                        lbl_id = f"wnd[1]/usr/lbl[1,{i}]"
-                        
-                        # Extraemos el texto
-                        nombre_layout = session.findById(lbl_id).text.strip()
-                        # print(f"Layout analizado(Fila {i}) {nombre_layout}")
-                        # Comparamos
-                        if nombre_layout == lay_out:
-                            session.findById(lbl_id).setFocus()
-                            session.findById("wnd[1]").sendVKey(2) # F2 / Doble clic (Seleccionar)
-                            layout_encontrado = True
-                            print(f"✅ Layout {lay_out} encontrado y aplicado (Fila {i}).")
-                            break
-                            
-                    except:
-                        # Si llegamos a un índice 'i' que no existe, SAP lanza error.
-                        # Significa que ya revisamos toda la lista, así que rompemos el ciclo.
-                        break
-                
-                # Si recorrió toda la lista y no lo encontró
-                if not layout_encontrado:
-                    print(f"⚠️ Layout {lay_out} no encontrado en la lista. Se exportará con el layout actual.")
-                    session.findById("wnd[1]").sendVKey(12) # Cerrar la ventana de layouts (Cancelar)
-
-            except Exception as e:
-                print(f"⚠️ Advertencia: Error abriendo menú de layouts. Se usará el actual. ({e})")
-                if session.Children.Count > 1:
-                    session.findById("wnd[1]").sendVKey(12) # Cancelar
-            
-            # --- 5. EXPORTAR A EXCEL / CSV ---
-            if descargar:
-                # Menú: Lista -> Exportar -> Fichero Local
-                session.findById("wnd[0]/mbar/menu[0]/menu[9]/menu[2]").select()
-                
-                # Seleccionar formato (Spreadsheet / Excel)
-                session.findById("wnd[1]/usr/subSUBSCREEN_STEPLOOP:SAPLSPO5:0150/sub:SAPLSPO5:0150/radSPOPLI-SELFLAG[1,0]").select()
-                session.findById("wnd[1]/tbar[0]/btn[0]").press()
-                
-                # Rutas y guardado
-                session.findById("wnd[1]/usr/ctxtDY_PATH").text = path_descarga
-                session.findById("wnd[1]/usr/ctxtDY_FILENAME").text = nom_archivo
-                session.findById("wnd[1]/tbar[0]/btn[11]").press() # Guardar/Reemplazar
-                
-                # Validar mensajes finales de error ("sy")
-                if session.Children.Count > 1:
-                    try:
-                        mensaje_popup = session.findById("wnd[1]/usr/txtMESSTXT1").text
-                        if "sy" in mensaje_popup.lower():
-                            session.findById("wnd[1]").sendVKey(0)
-                            return False
-                    except:
-                        pass
-
-            return True
-
-        except Exception as e:
-            print(f"❌ Error técnico ejecutando VT16: {e}")
-            return False
-
-    def descargar_operacion_vt16(self, centro_exp: str = "") -> str:
-        """
-        Orquestador que prepara las variables para descargar la VT16.
-        Se ejecuta idealmente cada ciertos minutos para alimentar el tablero de báscula.
-        """
-        import os
-        from datetime import datetime
-        
-        # --- 1. RUTAS Y NOMBRES ---
-        user_profile = os.path.expanduser("~")
-        ruta_base = os.path.join(user_profile, "Elementia S. A", "autoarribo", "vt16")
-        
-        if not os.path.exists(os.path.dirname(os.path.dirname(ruta_base))):
-            ruta_base = os.path.join(user_profile, "Documentos", "autoarribo", "vt16")
-            
-        if not os.path.exists(ruta_base):
-            os.makedirs(ruta_base)
-            
-        # Archivo diario que se sobrescribe: Ej. VT16_20260623.csv
-        fecha_str = datetime.now().strftime("%Y%m%d")
-        nombre_archivo = f"VT16_{fecha_str}.csv" 
-        
-        # --- 2. FECHAS (Día en curso) ---
-        # A diferencia de ZSDMX389 que baja todo el año, VT16 suele ser del día
-        # o un rango corto para no saturar la descarga. Usaremos el día de hoy.
-        fch_hoy = datetime.now().strftime("%d.%m.%Y")
-        
-        self.emitter.keep_alive_signal.emit("Descargando archivo operativo VT16...", "blue")
-        
-        # --- 3. EJECUTAR DESCARGA ---
-        exito = self.vt16(
-            centro_exp=centro_exp, 
-            fch_in=fch_hoy, 
-            fch_fn=fch_hoy, 
-            path_descarga=ruta_base, 
-            nom_archivo=nombre_archivo, 
-            status_global_in = "0",
-            status_global_fn = "5",
-            descargar=True
-        )
-        
-        if exito:
-            ruta_completa = os.path.join(ruta_base, nombre_archivo)
-            print(f"✅ Archivo VT16 guardado en: {ruta_completa}")
-            self.emitter.keep_alive_signal.emit("VT16 actualizada", "green")
-            return ruta_completa
-        else:
-            self.emitter.keep_alive_signal.emit("Error/Sin datos actualizando VT16", "orange")
-            return ""
-        
