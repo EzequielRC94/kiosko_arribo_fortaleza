@@ -157,7 +157,7 @@ class DescargasManager:
         except Exception as e:
             raise Exception(f"Falla crítica en evaluación/descarga ZSDMX389: {e}")
 
-    def zsdmx249_robot(self, ruta_base_drive: str, dias_atras: int = 3, extension: str = "csv") -> dict:
+    def zsdmx249_robot(self, ruta_base_drive: str, dias_atras: int = 3, extension: str = "xls") -> dict:
         """
         Recorre desde hoy hasta -3 días para descargar la transacción ZSDMX249.
         - Si el archivo no existe en path_249, lo descarga.
@@ -236,11 +236,12 @@ class DescargasManager:
         except Exception as e:
             raise Exception(f"Falla crítica en evaluación/descarga ZSDMX249: {e}")
 
-    def zsdmx267_robot(self, ruta_base_drive: str = None, dias_atras: int = 3, extension: str = "xls") -> dict:
+    def zsdmx267_robot(self, ruta_base_drive: str = None, dias_atras: int = 3, extension: str = "xls", forzar: bool = False) -> dict:
         """
         Robot para la descarga diaria/histórica de la transacción ZSDMX267 en formato XLS.
         Itera día por día en reversa desde hoy hasta -dias_atras.
-        Utiliza _requiere_descarga para omitir archivos con menos de 10 minutos de haberse actualizado.
+        - Si forzar=True, descarga y sobreescribe todos los archivos sin validar antigüedad.
+        - Utiliza _requiere_descarga para omitir archivos con menos de 10 minutos de haberse actualizado.
         """
         hoy = datetime.now()
 
@@ -257,8 +258,6 @@ class DescargasManager:
         path_267 = os.path.join(ruta_base_drive, "zsdmx267")
         os.makedirs(path_267, exist_ok=True)
 
-        centro_exp = "MX*"
-        lay_out = "/0.TRAN_REP"
         ext_limpia = extension.strip().lower().replace(".", "")
 
         rutas_generadas = {}
@@ -277,7 +276,10 @@ class DescargasManager:
                 debe_descargar = False
                 motivo = ""
 
-                if not os.path.exists(ruta_archivo):
+                if forzar:
+                    debe_descargar = True
+                    motivo = "Descarga forzada manualmente"
+                elif not os.path.exists(ruta_archivo):
                     debe_descargar = True
                     motivo = "No existe el archivo"
                 else:
@@ -296,8 +298,6 @@ class DescargasManager:
                         extension=ext_limpia,
                         fch_in=fch_sap,
                         fch_fn=fch_sap,
-                        lay_out=lay_out,
-                        centro_exp=centro_exp,
                         descargar=True
                     )
 
@@ -324,7 +324,8 @@ class DescargasManager:
         except Exception as e:
             raise Exception(f"Falla crítica en evaluación/descarga ZSDMX267: {e}")
 
-    def vt16_robot(self, ruta_base_drive: str = None, centro_exp: str = "", mes: str = "", extension: str = "csv") -> dict:
+    def vt16_robot(self, ruta_base_drive: str = None, centro_exp: str = "", mes: str = "", 
+                   extension: str = "xls") -> dict:
         """
         Orquestador que prepara las variables para descargar la transacción VT16.
         - La variable 'mes' se espera en formato numérico 1-12; si no se pasa, toma el mes en curso.
@@ -391,7 +392,7 @@ class DescargasManager:
                     centro_exp=centro_exp,
                     status_global_in="1",
                     status_global_fn="7",
-                    lay_out="/HORARIOS_FZ",
+                    lay_out="/$ZQL_ROBOT",
                     descargar=True
                 )
 

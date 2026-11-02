@@ -1,10 +1,12 @@
 # _zql_robot.py
 import os
+import json
 import time
 from datetime import datetime, timedelta
 from manager_sap import SAPManager, SAPError
 from manager_cloudfort import CloudFortManager
 from manager_arribos import ArribosManager
+from manager_descargas import DescargasManager
 from session_data import SessionData
 
 
@@ -132,4 +134,96 @@ def obtener_datos_remision(
         "origen": origen_datos,
         "error_sap": ""
     }
+
+
+def obtener_ruta_base_drive() -> str:
+    """Calcula la ruta base operativa del año actual en OneDrive."""
+    perfil_usuario = os.environ.get("USERPROFILE", os.path.expanduser("~"))
+    anio_actual = datetime.now().strftime("%Y")
+    return os.path.join(
+        perfil_usuario,
+        "Elementia S. A",
+        "kiosko logistica cem - Documentos",
+        anio_actual
+    )
+
+
+def rutina_diaria(dias_atras: int = 3, ruta_base_drive: str = None):
+    """
+    Actividad rutinaria diaria:
+    Descarga los reportes de SAP actualizando únicamente los últimos 'dias_atras' días (por defecto 3).
+    """
+    if ruta_base_drive is None:
+        ruta_base_drive = obtener_ruta_base_drive()
+
+    manager = DescargasManager()
+    hoy = datetime.now()
+
+    # Mes en curso (""). Si hoy está entre los primeros 3 días del mes, también incluye el mes previo
+    meses_a_procesar = [""]
+    if hoy.day <= dias_atras:
+        mes_anterior = (hoy.replace(day=1) - timedelta(days=1)).month
+        meses_a_procesar.append(str(mes_anterior))
+
+    print("=" * 70)
+    print(" 🚀 INICIANDO DESCARGAS RUTINARIAS SAP (RUTINA DIARIA)")
+    print(f" 📁 Ruta Base Drive: {ruta_base_drive}")
+    print(f" 📅 Días atrás (249 / 267): {dias_atras} días")
+    print(f" 🗓️ Meses a procesar (VT16 / FBL4N): {[m if m else f'{hoy.month} (en curso)' for m in meses_a_procesar]}")
+    print("=" * 70)
+
+    # 1. ZSDMX389 (pendientes y en proceso)
+    print("\n▶ [1/5] Ejecutando: zsdmx389_robot (tipo_descarga='ambos')...")
+    try:
+        res_389 = manager.zsdmx389_robot(ruta_base_drive=ruta_base_drive, tipo_descarga="ambos")
+        print(f"📋 Resultado zsdmx389_robot:\n{json.dumps(res_389, indent=4, ensure_ascii=False)}")
+    except Exception as e_389:
+        print(f"❌ Error en zsdmx389_robot: {e_389}")
+
+    # 2. ZSDMX249 (hoy a -3 días, XLS)
+    print(f"\n▶ [2/5] Ejecutando: zsdmx249_robot (dias_atras={dias_atras}, extension='xls')...")
+    try:
+        res_249 = manager.zsdmx249_robot(ruta_base_drive=ruta_base_drive, dias_atras=dias_atras, extension="xls")
+        print(f"📋 Resultado zsdmx249_robot:\n{json.dumps(res_249, indent=4, ensure_ascii=False)}")
+    except Exception as e_249:
+        print(f"❌ Error en zsdmx249_robot: {e_249}")
+
+    # 3. ZSDMX267 (hoy a -3 días, XLS)
+    print(f"\n▶ [3/5] Ejecutando: zsdmx267_robot (dias_atras={dias_atras}, extension='xls')...")
+    try:
+        res_267 = manager.zsdmx267_robot(ruta_base_drive=ruta_base_drive, dias_atras=dias_atras, extension="xls")
+        print(f"📋 Resultado zsdmx267_robot:\n{json.dumps(res_267, indent=4, ensure_ascii=False)}")
+    except Exception as e_267:
+        print(f"❌ Error en zsdmx267_robot: {e_267}")
+
+    # 4. VT16 (mes en curso / últimos días, XLS)
+    print(f"\n▶ [4/5] Ejecutando: vt16_robot (extension='xls')...")
+    for mes_param in meses_a_procesar:
+        etiqueta_mes = f"mes {mes_param}" if mes_param else "mes en curso"
+        print(f"  🔹 [VT16] Procesando {etiqueta_mes}...")
+        try:
+            res_vt16 = manager.vt16_robot(ruta_base_drive=ruta_base_drive, mes=mes_param, extension="xls")
+            print(f"  📋 Resultado vt16_robot ({etiqueta_mes}):\n{json.dumps(res_vt16, indent=4, ensure_ascii=False)}")
+        except Exception as e_vt16:
+            print(f"  ❌ Error en vt16_robot ({etiqueta_mes}): {e_vt16}")
+
+    # 5. FBL4N (mes en curso / últimos días, XLS)
+    print(f"\n▶ [5/5] Ejecutando: fbl4n_robot (extension='xls')...")
+    for mes_param in meses_a_procesar:
+        etiqueta_mes = f"mes {mes_param}" if mes_param else "mes en curso"
+        print(f"  🔹 [FBL4N] Procesando {etiqueta_mes}...")
+        try:
+            res_fbl4n = manager.fbl4n_robot(ruta_base_drive=ruta_base_drive, mes=mes_param, extension="xls")
+            print(f"  📋 Resultado fbl4n_robot ({etiqueta_mes}):\n{json.dumps(res_fbl4n, indent=4, ensure_ascii=False)}")
+        except Exception as e_fbl4n:
+            print(f"  ❌ Error en fbl4n_robot ({etiqueta_mes}): {e_fbl4n}")
+
+    print("\n" + "=" * 70)
+    print(" 🏁 RUTINA DE DESCARGAS FINALIZADA")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    rutina_diaria()
+
 

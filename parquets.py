@@ -1,4 +1,5 @@
 # parquets.py
+from logging import config
 import os
 import glob
 from datetime import datetime
@@ -10,130 +11,90 @@ import pandas as pd
 # ==============================================================================
 
 CONFIG_267 = {
-    "columna_ancla": "Entrega",
-    "llaves_dedup": ["entrega", "entrega_pos", "transporte"],
-    "diccionario_nombres": {
-        # --- IDENTIFICADORES Y RUTAS ---
-        "PtPlaTrnsp": "c_exp",
-        "PtoPlanifTransp": "c_exp",
-        "Entrega": "entrega",
-        "Transporte": "transporte",
-        "Nº de transporte": "transporte",
-        "Gasto de transporte": "gasto_transporte",
-        "RutaTransp": "ruta_id",
-        "Nombre de ruta": "ruta_nombre",
-        "Pob. Dest.": "destino_poblacion",
-        "RegionDest": "destino_region",
-        "Region Dest.": "destino_region",
-        "Tarif norm": "tarifa_normal",
-        "Tarifa normal": "tarifa_normal",
-        "Valor neto": "valor_neto",
-        "Distancia": "destino_km",
-        "Kilometraje": "destino_km",
-
-        # --- TRANSPORTISTAS ---
-        "Cant.Fact.": "ctd_facturada",
-        "Cantidad Facturada": "ctd_facturada",
-        "AgServTran": "transp_num_proveedor",
-        "Agente servicios": "transp_num_proveedor",
-        "Nombre transportista": "transp_nombre",
-        "Cl.exped.": "clase_expedicion",
-        "Clase expedición": "clase_expedicion",
-        "Denomin.": "clase_exp_denominacion",
-        "NoPlat": "signatura",
-        "Signatura": "signatura",
-        "IDTrackTransp": "id_track",
-        "Plac. Rem.": "placas_remision",
-        "Placas Remisión": "placas_remision",
-        "Texto adic.2": "operador_transporte",
-        "Chofer Remisión": "operador_remision",
-
-        # --- CLIENTES Y MATERIALES ---
-        "Nombre.1": "cliente_nombre",
-        "Nombre.2": "destinatario_nombre",
-        "Solic.": "cliente_numero",
-        "Solicitante": "cliente_numero",
-        "Destinat.": "destinatario_numero",
-        "Material": "material_numero",
-        "Denominación": "material_denominacion",
-        "Peso neto": "peso_neto",
-        "Neto_1": "peso_neto",
-        "Peso total": "peso_bruto",
-        "Peso bruto": "peso_bruto",
-
-        # --- PEDIDOS Y ENTREGAS ---
-        "Doc.modelo": "pedido",
-        "F. Manual": "folio_manual",
-        "Folio Manual": "folio_manual",
-        "PosEnt": "entrega_pos",
-        "Creado el": "fch_creacion_entrega",
-        "Fecha CreRem": "fch_creacion_entrega",
-        "Hora": "hora_creacion_entrega",
-        "Hora CreRem": "hora_creacion_entrega",
-
-        # --- GASTOS Y FINANZAS ---
-        "Fecha creación gasto": "fch_creacion_gasto",
-        "Estatus de flete": "gasto_estatus",
-        "Orden de Compra": "gasto_oc",
-        "Ce.coste": "gasto_ceco",
-        "Centro de coste": "gasto_ceco",
-        "División": "gasto_division",
-        "División Descripción": "gasto_division_nombre",
-        "Doc.facturación": "factura_doc",
-        "Valor Factura": "factura_valor",
-        "Neto.1": "factura_valor",
-        "Peso Factura": "factura_peso",
-        "Neto.2": "factura_peso",
-
-        # --- FECHAS LOGÍSTICAS ---
-        "FechaCrea": "0_fch_creacion_transporte",
-        "FinPlanif": "1_fch_planificacion",
-        "Fin planificación": "1_fch_planificacion",
-        "FeActReg": "2_fch_bascula_entrada",
-        "Fe.actual registro": "2_fch_bascula_entrada",
-        "InActCarga": "3_fch_inicio_carga",
-        "Inicio actual carga": "3_fch_inicio_carga",
-        "FinActCarg": "4_fch_fin_carga",
-        "Fin actual carga": "4_fch_fin_carga",
-        "FeActDpExp": "5_fch_despacho_exp",
-        "Fe.act.desp.exped.": "5_fch_despacho_exp",
-        "InActTrans": "6_fch_inicio_transporte",
-        "Inic.actual transp.": "6_fch_inicio_transporte",
-        "FinActTran": "7_fch_fin_transporte",
-        "Fin act.transporte": "7_fch_fin_transporte",
-
-        # --- HORAS LOGÍSTICAS ---
-        "Hora.1": "0_hr_creacion_transporte",
-        "Hora CreTrp": "0_hr_creacion_transporte",
-        "FinPlanif.1": "1_hr_planificacion",
-        "Hora final planif.": "1_hr_planificacion",
-        "HoraActReg": "2_hr_bascula_entrada",
-        "Hora actual registro": "2_hr_bascula_entrada",
-        "HrActInCga": "3_hr_inicio_carga",
-        "Hora act.inic.carga": "3_hr_inicio_carga",
-        "HrAcFinCga": "4_hr_fin_carga",
-        "Hora act.fin carga": "4_hr_fin_carga",
-        "HoraActDeE": "5_hr_despacho_exp",
-        "Hora act.desp.exp.": "5_hr_despacho_exp",
-        "HrAcInTran": "6_hr_inicio_transporte",
-        "Hora act.in.transp.": "6_hr_inicio_transporte",
-        "HrAcFiTrsp": "7_hr_fin_transporte",
-        "Hora act.fin transp.": "7_hr_fin_transporte",
-
-        # --- TRANSPORTE EXTRA ---
-        "Cl.transp.": "clase_transporte",
-        "Clase de transporte": "clase_transporte",
-        "Descripción": "clase_transp_desc",
-        "Denominac": "modalidad",
-        "Autor": "transporte_autor",
-    },
-    "cols_int": ["destino_km"],
+    "columna_ancla": "entrega",
+    "llaves_dedup": ["entrega", "transporte", "gasto_transporte"],
+    "skinprows": 3, # Número de filas a saltar antes de leer encabezados (para zsdmx267)
+    # Orden estático de las 19 columnas del layout /0.TRAN_REP en ZSDMX267
+    "columnas_fijas": [
+        "c_exp",               # 1. PtPlaTrnsp / PtoPlanifTransp
+        "entrega",             # 2. Entrega
+        "entrega_pos",         # 3. Posición de entrega
+        "transporte",          # 4. Transporte / Nº de transporte
+        "gasto_transporte",    # 5. Nº porte / Gasto de transporte
+        "tarifa_normal",       # 6. Tarif norm / Tarifa normal
+        "tarifa_total",        # 7. Neto / Valor neto
+        "fch_creacion_gasto",  # 8. Fe.liquid. / Fecha creación gasto
+        "gasto_estatus",       # 9. Estatus de flete
+        "gasto_oc",            # 10. Doc.compr. / Orden de Compra
+        "gasto_ceco",          # 11. Ce.coste / Centro de coste
+        "gasto_division",      # 12. División
+        "destino_poblacion",   # 13. Pob. Dest.
+        "destino_region",      # 14. RegionDest / Region Dest.
+        "operador_remision",   # 15. Chofer Remisión
+        "placas_remision",     # 16. Plac. Rem. / Placas Remisión
+        "factura_doc",         # 17. Factura / Doc.facturación
+        "factura_valor",       # 18. Neto.1 / Valor Factura / Valor neto.1
+        "ruta_id",             # 19. RutaTransp
+        "ruta_nombre",         # 20. Nombre de ruta
+    ],
+    "cols_int": [],
     "cols_float": [
-        "ctd_facturada", "tarifa_normal", "valor_neto",
-        "peso_bruto", "peso_neto", "factura_valor", "factura_peso"
+        "tarifa_normal", "tarifa_total", "factura_valor"
     ],
     "cols_date": [
-        "fch_creacion_entrega", "fch_creacion_gasto", "0_fch_creacion_transporte",
+        "fch_creacion_gasto"
+    ],
+    "cols_time": [],
+}
+
+CONFIG_249 = {
+    "columna_ancla": "entrega", 
+    "llaves_dedup": ["entrega", "pedido_pos"], #llave para eliminar duplicados
+    #Ezequiel del futuro, falta agregar a la transaccion 249 la columnas:
+    #pos_entrega (tenemos la posicion del pedido, peró no de la entrega)
+    #puesto_expedicion (modalidad: "entregado/retirado")
+    "columnas_fijas": [
+        "c_exp",                     # 1. psex / centro expedicion
+        "entrega",                   # 2. entrega
+        "transporte",                # 3. talón de e / Transporte
+        "material_nom",              # 4. denominación / Nombre del material
+        "material_cod",              # 5. material / Código de material
+        "ton",                       # 6. ctd.entr. / cantidad de entrega (toneladas)
+        "gpo_mat",                   # 7. grm2 / Grupo de material 2
+        "clte_solicitante",          # 8. solic. / Cliente solicitante            
+        "clte_nombre",               # 9. nombre 1 / Nombre del cliente
+        "clte_destinatario",         # 10. destinat. / Destinatario
+        "clte_nombre_destinatario",  # 11. nombre destinatario / Nombre del destinatario
+        "pedido",                    # 12. pedido / Número de pedido
+        "pedido_pos",                # 13. pos. / Posición de pedido
+        "fch_sm_real",               # 14. fe.sm real / Fecha salida mercancias real
+        "ent_crea",                  # 15. creador en / Quien creó la entrega
+        "ej_comercial",              # 16. vendedor / Vendedor
+        "ej_nombre_completo",        # 17. nombre completo / Nombre completo del vendedor
+        "peso_neto",                 # 18. entr peso / Peso neto
+        "peso_bruto",                # 19. entr peso.1 / Peso bruto
+        "folio_manual",              # 20. folio manu / Folio manual
+        "factura",                   # 21. factura / Factura
+        "fch_creacion_entrega",      # 22. fe.creació / Fecha de creación de la entrega
+        "fch_cita_entrega",          # 23. fe.entrega / Fecha de cita de entrega
+    ],
+
+    "cols_int": [],
+    "cols_float": ["ton", "peso_neto", "peso_bruto"],
+    "cols_date": ["fch_sm_real", "fch_creacion_entrega", "fch_cita_entrega"],
+    "cols_time": [],
+}
+
+CONFIG_VT16 = {
+    "columna_ancla": "transporte",
+    "llaves_dedup": ["transporte"],
+    "columnas_fijas": [],       # Configurar aquí la lista ordenada de columnas del layout /HORARIOS_FZ
+    "cols_int": ["destino_km"],
+    "cols_float": [
+        "ctd_facturada", "peso_bruto", "peso_neto"
+    ],
+    "cols_date": [
+        "fch_creacion_entrega", "0_fch_creacion_transporte",
         "1_fch_planificacion", "2_fch_bascula_entrada", "3_fch_inicio_carga",
         "4_fch_fin_carga", "5_fch_despacho_exp", "6_fch_inicio_transporte",
         "7_fch_fin_transporte"
@@ -144,16 +105,8 @@ CONFIG_267 = {
         "5_hr_despacho_exp", "6_hr_inicio_transporte", "7_hr_fin_transporte"
     ],
 }
+CONFIG_vt16 = CONFIG_VT16   
 
-CONFIG_249 = {
-    "columna_ancla": None,      # Acepta cualquier columna válida del reporte ZSDMX249
-    "llaves_dedup": [],         # Reemplaza por archivo actualizado (_archivo_origen)
-    "diccionario_nombres": None, # Conserva todas las columnas del layout /ZQL_REPORT
-    "cols_int": [],
-    "cols_float": [],
-    "cols_date": [],
-    "cols_time": [],
-}
 
 
 # ==============================================================================
@@ -166,13 +119,23 @@ def obtener_rutas_transaccion(transaccion: str) -> dict:
     a partir del número o nombre de transacción (ej. '249', '267', '389' o 'zsdmx249').
     """
     cod_tx = str(transaccion).lower().replace("zsdmx", "").strip()
-    nombre_carpeta_sap = f"zsdmx{cod_tx}"
 
     perfil_usuario = os.environ.get("USERPROFILE", os.path.expanduser("~"))
     carpeta_general = os.path.join(perfil_usuario, "Elementia S. A", "kiosko logistica cem - Documentos")
     anno = str(datetime.now().year)
 
-    carpeta_origen = os.path.join(carpeta_general, anno, nombre_carpeta_sap)
+    # Identificar la carpeta de origen (soporta 'zsdmx267', 'vt16', 'fbl4n', etc.)
+    candidatos_carpeta = [
+        os.path.join(carpeta_general, anno, f"zsdmx{cod_tx}"),
+        os.path.join(carpeta_general, anno, str(transaccion).lower()),
+        os.path.join(carpeta_general, anno, cod_tx),
+    ]
+    carpeta_origen = candidatos_carpeta[0]
+    for c in candidatos_carpeta:
+        if os.path.exists(c):
+            carpeta_origen = c
+            break
+
     archivo_parquet = os.path.join(carpeta_general, "bi", "parquet", f"{cod_tx}.parquet")
     archivo_log = os.path.join(carpeta_general, "bi", "memoria_txt", f"{cod_tx}.txt")
 
@@ -218,47 +181,55 @@ def _guardar_memoria_modificacion(archivo_log: str, memoria: dict):
 def _leer_archivo_sap_flexible(archivo: str) -> pd.DataFrame | None:
     """
     Lee un archivo descargado de SAP (.csv, .txt, .xls) probando distintos
-    delimitadores y codificaciones, limpiando encabezados y columnas duplicadas.
+    delimitadores y codificaciones, limpiando encabezados antes de numerar
+    columnas duplicadas para evitar variaciones entre '.1' y '_1'.
     """
-    df_temp = None
+    _skinprows = config.get("skiprows", 3) if config else 3
+    df_raw = None
     for sep in ["\t", ";", ","]:
         for enc in ["utf-16", "latin-1", "utf-8"]:
             try:
-                df_temp = pd.read_csv(
+                df_raw = pd.read_csv(
                     archivo,
                     sep=sep,
-                    skiprows=3,
+                    skiprows=_skinprows,
+                    header=None, #No extraemos headers
                     encoding=enc,
                     dtype=str,
                     quoting=3,
                     on_bad_lines="skip",
                 )
-                if len(df_temp.columns) > 3:
+                if len(df_raw.columns) > 3 and len(df_raw) > 1:
                     break
             except Exception:
                 continue
-        if df_temp is not None and len(df_temp.columns) > 3:
+        if df_raw is not None and len(df_raw.columns) > 3 and len(df_raw) > 1:
             break
 
-    if df_temp is None or df_temp.empty:
+    if df_raw is None or df_raw.empty or len(df_raw) < 2:
         return None
 
-    # Limpiar espacios invisibles de encabezados y descartar columnas totalmente vacías ("Unnamed")
-    df_temp.columns = df_temp.columns.str.strip()
-    cols_validas = [c for c in df_temp.columns if c and not c.startswith("Unnamed")]
-    df_temp = df_temp[cols_validas]
+    # Extraer la fila de encabezados (fila 0) y limpiar espacios ANTES de deduplicar nombres
+    encabezados_raw = df_raw.iloc[0].fillna("").astype(str).str.strip()
+    indices_validos = [
+        i for i, col in enumerate(encabezados_raw)
+        if col and not col.startswith("Unnamed")
+    ]
+    if not indices_validos:
+        return None
 
-    # Reparar nombres de columnas duplicadas
-    columnas = pd.Series(df_temp.columns)
+    df_temp = df_raw.iloc[1:, indices_validos].copy()
+    columnas = pd.Series([encabezados_raw.iloc[i] for i in indices_validos], dtype=str)
+
+    # Numerar columnas duplicadas siempre de forma estática y uniforme con '.1', '.2', etc.
     for dup in columnas[columnas.duplicated()].unique():
         indices = columnas[columnas == dup].index.tolist()
         for idx_count, idx in enumerate(indices):
             if idx_count > 0:
-                columnas[idx] = f"{dup}_{idx_count}"
-    df_temp.columns = columnas
+                columnas.iloc[idx] = f"{dup}.{idx_count}"
 
-    # Eliminar filas que sean líneas separadoras de SAP (ej. '---' o vacías)
-    df_temp = df_temp.dropna(how="all")
+    df_temp.columns = columnas
+    df_temp = df_temp.dropna(how="all").reset_index(drop=True)
     return df_temp
 
 
@@ -287,7 +258,7 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
         patrones = [
             os.path.join(carpeta_origen, "*.csv"),
             os.path.join(carpeta_origen, "*.txt"),
-            os.path.join(carpeta_origen, "*.xls*"),
+            os.path.join(carpeta_origen, "*.xls"),
         ]
         todos_los_archivos = []
         for patron in patrones:
@@ -312,7 +283,7 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
         # 2. LECTURA Y LIMPIEZA DE ARCHIVOS NUEVOS/MODIFICADOS
         # ==========================================
         config = config or {}
-        diccionario_nombres = config.get("diccionario_nombres")
+        columnas_fijas = config.get("columnas_fijas")
         columna_ancla = config.get("columna_ancla")
         llaves_dedup = config.get("llaves_dedup", [])
 
@@ -327,27 +298,32 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
                 print(f"⚠️ No se pudo parsear adecuadamente: {nom_base}")
                 continue
 
-            # Validar columna ancla si está configurada (ej. 'Entrega')
+            print(f"  -> Columnas en {nom_base} ({len(df_temp.columns)}): {list(df_temp.columns)}")
+
+            # 1. Asignar nombres configurados en orden posicional (sin diccionarios)
+            if columnas_fijas:
+                if len(df_temp.columns) == len(columnas_fijas):
+                    df_temp.columns = list(columnas_fijas)
+                else:
+                    print(
+                        f"⚠️ Advertencia en {nom_base}: tiene {len(df_temp.columns)} columnas, "
+                        f"pero 'columnas_fijas' define {len(columnas_fijas)}. "
+                        f"Se conservan nombres originales."
+                    )
+
+            # 2. Filtrado por columna ancla o primera columna para omitir subtotales/filas vacías
             if columna_ancla:
                 cols_ancla = [c for c in df_temp.columns if columna_ancla.lower() in c.lower()]
                 if not cols_ancla:
-                    print(f"⚠️ Advertencia: No se encontró columna '{columna_ancla}' en {nom_base}. Se omite.")
+                    print(f"⚠️ Advertencia: No se encontró columna ancla '{columna_ancla}' en {nom_base}. Se omite.")
                     continue
                 col_ref = cols_ancla[0]
                 df_temp = df_temp.dropna(subset=[col_ref])
                 df_temp = df_temp[df_temp[col_ref].astype(str).str.strip() != ""]
             else:
-                # Si no hay columna ancla fija, tomamos la primera columna como referencia para filtrar filas vacías/subtotales
                 primera_col = df_temp.columns[0]
                 df_temp = df_temp.dropna(subset=[primera_col])
                 df_temp = df_temp[df_temp[primera_col].astype(str).str.strip() != ""]
-
-            # Si hay mapeo de nombres de columnas, renombramos y filtramos
-            if diccionario_nombres:
-                df_temp = df_temp.rename(columns=diccionario_nombres, errors="ignore")
-                columnas_finales = list(dict.fromkeys(diccionario_nombres.values()))
-                columnas_presentes = [col for col in columnas_finales if col in df_temp.columns]
-                df_temp = df_temp[columnas_presentes]
 
             # Guardamos trazabilidad del archivo origen para poder reemplazarlo limpiamente si se re-descarga
             df_temp["_archivo_origen"] = nom_base
@@ -365,10 +341,13 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
         if os.path.exists(archivo_parquet):
             print(f"🔄 Cargando Parquet maestro existente ({cod_tx}.parquet)...")
             try:
-                df_master = pd.read_parquet(archivo_parquet)
+                df_master = pd.read_parquet(archivo_parquet, engine="fastparquet")
                 if "_archivo_origen" in df_master.columns:
                     # Quitamos del maestro los registros viejos de los archivos que acabamos de volver a leer
                     df_master = df_master[~df_master["_archivo_origen"].isin(nombres_actualizados.keys())]
+                if columnas_fijas:
+                    cols_permitidas = [c for c in list(columnas_fijas) + ["_archivo_origen"] if c in df_master.columns]
+                    df_master = df_master[cols_permitidas]
                 lista_dataframes.append(df_master)
             except Exception as e_pq:
                 print(f"⚠️ Error al leer Parquet maestro (se reconstruirá): {e_pq}")
@@ -421,7 +400,7 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
         # 5. GUARDADO FINAL Y ACTUALIZACIÓN DE MEMORIA
         # ==========================================
         print(f"💾 Escribiendo Parquet maestro en: {archivo_parquet}...")
-        df_final.to_parquet(archivo_parquet, engine="pyarrow", index=False)
+        df_final.to_parquet(archivo_parquet, engine="fastparquet", index=False)
 
         memoria.update(nombres_actualizados)
         _guardar_memoria_modificacion(archivo_log, memoria)
@@ -442,6 +421,7 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
 # FUNCIONES DE ENTRADA POR TRANSACCIÓN
 # ==============================================================================
 
+
 def actualizar_parquet_zsdmx249() -> dict:
     """
     Lee todos los archivos de la carpeta zsdmx249, valida su fecha de actualización
@@ -458,6 +438,15 @@ def actualizar_parquet_zsdmx267() -> dict:
     return actualizar_parquet_transaccion("267", config=CONFIG_267)
 
 
+def actualizar_parquet_vt16() -> dict:
+    """
+    Lee todos los archivos de la carpeta vt16, valida su fecha de actualización
+    y consolida incrementalmente en 'vt16.parquet'.
+    """
+    return actualizar_parquet_transaccion("vt16", config=CONFIG_VT16)
+
+
 if __name__ == "__main__":
     actualizar_parquet_zsdmx249()
-    # actualizar_parquet_zsdmx267()
+    #actualizar_parquet_zsdmx267()
+    #actualizar_parquet_vt16()

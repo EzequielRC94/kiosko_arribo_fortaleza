@@ -16,3 +16,6 @@ dist/
 # Archivos de sistema operativo
 .DS_Store
 Thumbs.db
+
+#Archivos de pruebas
+test_*.py

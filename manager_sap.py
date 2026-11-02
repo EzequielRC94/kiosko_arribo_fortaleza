@@ -1645,9 +1645,9 @@ class SAPManager:
             }
 
     @tunel_sap("ZSDMX267: Descarga Reporte")
-    def zsdmx267(self, path_descarga: str, nom_archivo: str, extension: str = "csv",  
-                 fch_in: str = "", fch_fn: str = "", lay_out: str = "",
-                 centro_exp: str = "*", descargar: bool = True) -> dict:
+    def zsdmx267(self, path_descarga: str, nom_archivo: str, extension: str = ".xls",  
+                 fch_in: str = "", fch_fn: str = "", lay_out: str = "/$ZQL_ROBOT",
+                 centro_exp: str = "MX*", descargar: bool = True) -> dict:
         """
         Ejecuta la transacción ZSDMX267, filtra por fechas y centro de expedición,
         asigna el layout indicado y descarga el archivo según la extensión.
@@ -1747,9 +1747,9 @@ class SAPManager:
             }
 
     @tunel_sap("ZSDMX249: Descarga Reporte")
-    def zsdmx249(self, path_descarga: str, nom_archivo: str, extension: str = "csv",
+    def zsdmx249(self, path_descarga: str, nom_archivo: str, extension: str = ".xls",
                  fch_in_sm_real: str = "", fch_fn_sm_real: str = "",
-                 lay_out: str = "/ZQL_REPORT", org_vta: str = "0152",
+                 lay_out: str = "/$ZQL_ROBOT", org_vta: str = "0152",
                  c_exp: str = "*", descargar: bool = True) -> dict:
         """
         Ejecuta la transacción ZSDMX249, ingresa filtros de organización, centro,
@@ -1822,10 +1822,10 @@ class SAPManager:
             }
 
     @tunel_sap("VT16: Descarga Reporte")
-    def vt16(self, path_descarga: str, nom_archivo: str, extension: str = "csv",
+    def vt16(self, path_descarga: str, nom_archivo: str, extension: str = ".xls",
              fch_in: str = "", fch_fn: str = "", centro_exp: str = "",
              status_global_in: str = "1", status_global_fn: str = "7",
-             lay_out: str = "/HORARIOS_FZ", descargar: bool = True) -> dict:
+             lay_out: str = "/$ZQL_ROBOT", descargar: bool = True) -> dict:
         """
         Ejecuta la transacción VT16 para ver transportes creados,
         filtra por estatus global, fechas de creación y centro de expedición,
@@ -1975,7 +1975,7 @@ class SAPManager:
             # --- 4. EXPORTAR ARCHIVO (MODULAR) ---
             if descargar:
                 # Menú Lista -> Exportar -> Hoja de cálculo
-                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[1]").select()
+                session.findById("wnd[0]/mbar/menu[0]/menu[3]/menu[2]").select()
                 if session.Children.Count > 1:
                     return self._exportar_archivo_sap(
                         session=session,
