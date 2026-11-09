@@ -1,0 +1,57 @@
+// zql_bi_catalogo_materiales.pq -> catalogo de materiales generado desde catalogos.py
+
+let
+    Origen = Table.FromRows({
+        {"1321185", "PATRIA 50", "envasado"},
+        {"41303", "BCO 50", "envasado"},
+        {"41304", "BCO 25", "envasado"},
+        {"41309", "MORTERO UL", "envasado"},
+        {"41320", "FORTALEZA RS 50", "envasado"},
+        {"41321", "MAGNO RS 50", "envasado"},
+        {"41336", "FORTALEZA 50", "envasado"},
+        {"41337", "MORTERO FZ 50", "envasado"},
+        {"1319772", "ESTUCO", "envasado"},
+        {"1330688", "FORTALEZA RS 25", "envasado"},
+        {"1330691", "MORTERO FZ 25", "envasado"},
+        {"1330689", "MAGNO RS 25", "envasado"},
+        {"1330690", "FORTALEZA 25", "envasado"},
+        {"1331169", "MAGNO 25", "envasado"},
+        {"1331156", "MAGNO 50", "envasado"},
+        {"1331390", "PATRIA 50", "envasado"},
+        {"1331391", "PATRIA 25", "envasado"},
+        {"41307", "BCO 25_MZ", "envasado"},
+        {"1330641", "RS 42.6", "granel"},
+        {"974360", "BCO granel", "granel"},
+        {"974527", "granel RS", "granel"},
+        {"974531", "granel", "granel"},
+        {"981035", "granel MEXALIT", "granel"},
+        {"41335", "BIG BAG", "envasado"},
+        {"1319631", "BIG BAG RS", "envasado"},
+        {"85901", "SACO BCO25", "saco"},
+        {"85903", "SACO M FZ50", "saco"},
+        {"85904", "SACO BCO50", "saco"},
+        {"85945", "SACO PROPILENO", "saco"},
+        {"85948", "SACO MG", "saco"},
+        {"85950", "SACO RS", "saco"},
+        {"85951", "SACO RS", "saco"},
+        {"87885", "SACO M FZ", "saco"},
+        {"87888", "SACO M UL", "saco"},
+        {"88657", "SACO ESTUCO", "saco"},
+        {"88845", "SACO PATRIA", "saco"},
+        {"89245", "SACO MAGNO LINER", "saco"},
+        {"89247", "SACO RS LINER", "saco"},
+        {"85949", "SACO SUPREMO", "saco"},
+        {"89756", "SACO 30R 25", "saco"},
+        {"89518", "SACO MORTERO FZ 25", "saco"},
+        {"89520", "SACO 30R MAGNO 25", "saco"},
+        {"89517", "SACO RS 25", "saco"},
+        {"89956", "SACO RS MAGNO 25", "saco"}
+    },
+    {"mat_codigo", "mat_nom_corto", "grupo"}),
+    #"Tipo cambiado" = Table.TransformColumnTypes(Origen,{
+        {"mat_codigo", type text},
+        {"mat_nom_corto", type text},
+        {"grupo", type text}
+    })
+in
+    #"Tipo cambiado"

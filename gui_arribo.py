@@ -710,7 +710,7 @@ class AppWindow(QMainWindow):
             # 💻 KEEP-ALIVE WINDOWS: Evitamos que el Kiosko entre en reposo
             evitar_bloqueo_windows()
             self.sap_manager.iniciar_keep_alive(intervalo_minutos=13)
-            
+             
             # --- TEMPORIZADOR PARA PING DE INTERNET ---
             self.timer_internet = QTimer(self)
             self.timer_internet.timeout.connect(self._ping_internet)

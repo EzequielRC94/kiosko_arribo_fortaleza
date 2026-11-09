@@ -27,6 +27,8 @@ class DialogoSeleccionPlanta(QDialog):
         layout.addWidget(lbl_titulo)
 
         for nombre_planta, info in CATALOGO_PLANTAS.items():
+            if not info.get("activo", True):
+                continue
             codigos = info["codigos"]
             letra = info["letra"]
             

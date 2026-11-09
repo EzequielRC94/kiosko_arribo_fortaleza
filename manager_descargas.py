@@ -157,18 +157,18 @@ class DescargasManager:
         except Exception as e:
             raise Exception(f"Falla crítica en evaluación/descarga ZSDMX389: {e}")
 
-    def zsdmx249_robot(self, ruta_base_drive: str, dias_atras: int = 3, extension: str = "xls") -> dict:
+    def zsdmx249_robot(self, ruta_base_drive: str, dias_atras: int = 3, extension: str = "xls", limite_minutos: int = 10) -> dict:
         """
-        Recorre desde hoy hasta -3 días para descargar la transacción ZSDMX249.
+        Recorre desde hoy hasta -dias_atras días para descargar la transacción ZSDMX249.
         - Si el archivo no existe en path_249, lo descarga.
         - Si ya existe, valida si su fecha de modificación (YYYYMMDD) es igual a fecha_str;
-          si es la misma, lo descarga (actualiza el día en curso o actualiza el archivo de ayer hoy).
+          si es la misma y supera limite_minutos, lo descarga (actualiza el día en curso o actualiza el archivo de ayer hoy).
         """
         path_249 = os.path.join(ruta_base_drive, "zsdmx249")
         os.makedirs(path_249, exist_ok=True)
 
         centro_exp = "*"
-        lay_out = "/ZQL_REPORT"
+        lay_out = "/$ZQL_ROBOT"
         hoy = datetime.now()
 
         rutas_generadas = {}
@@ -193,9 +193,9 @@ class DescargasManager:
                     motivo = "No existe el archivo"
                 else:
                     fch_mod_str = datetime.fromtimestamp(os.path.getmtime(ruta_archivo)).strftime("%Y%m%d")
-                    if fch_mod_str == fecha_str and _requiere_descarga(ruta_archivo):
+                    if fch_mod_str == fecha_str and _requiere_descarga(ruta_archivo, limite_minutos=limite_minutos):
                         debe_descargar = True
-                        motivo = f"Antigüedad > 10 min y fecha modificación ({fch_mod_str}) == fecha archivo ({fecha_str})"
+                        motivo = f"Antigüedad > {limite_minutos} min y fecha modificación ({fch_mod_str}) == fecha archivo ({fecha_str})"
 
                 rutas_generadas[fecha_str] = {"ruta": ruta_archivo, "actualizado": False}
 
@@ -325,11 +325,11 @@ class DescargasManager:
             raise Exception(f"Falla crítica en evaluación/descarga ZSDMX267: {e}")
 
     def vt16_robot(self, ruta_base_drive: str = None, centro_exp: str = "", mes: str = "", 
-                   extension: str = "xls") -> dict:
+                   extension: str = "xls", limite_minutos: int = 10) -> dict:
         """
         Orquestador que prepara las variables para descargar la transacción VT16.
         - La variable 'mes' se espera en formato numérico 1-12; si no se pasa, toma el mes en curso.
-        - Usa _requiere_descarga para omitir la descarga si el archivo tiene menos de 10 minutos.
+        - Usa _requiere_descarga para omitir la descarga si el archivo tiene menos de 10 minutos (o limite_minutos).
         - Retorna un diccionario estándar con estatus, msg y rutas.
         """
         hoy = datetime.now()
@@ -381,8 +381,8 @@ class DescargasManager:
 
         try:
             # --- 3. VALIDACIÓN DE TIEMPO (_requiere_descarga) Y EJECUCIÓN ---
-            if _requiere_descarga(ruta_archivo):
-                print(f"⬇️ [VT16] Descargando {nom_vt16}.{ext_limpia} (Antigüedad > 10 min o no existe)...")
+            if _requiere_descarga(ruta_archivo, limite_minutos=limite_minutos):
+                print(f"⬇️ [VT16] Descargando {nom_vt16}.{ext_limpia} (Antigüedad > {limite_minutos} min o no existe)...")
                 respuesta_sap = self.sap_manager.vt16(
                     path_descarga=path_vt16,
                     nom_archivo=nom_vt16,
