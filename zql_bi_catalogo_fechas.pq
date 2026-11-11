@@ -1,4 +1,4 @@
-// zql_bi_catalogo_fechas.pq -> catalogo de fechas
+// zql_bi_catalogo_fechas.pq -> catalogo de fechas generado desde catalogos.py
 let
     FechaInicio = #date(2026, 1, 1),
     FechaFin = #date(2026, 12, 31),

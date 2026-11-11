@@ -37,10 +37,12 @@ CONFIG_267 = {
         "destino_region",      # 14. RegionDest / Region Dest.
         "operador_remision",   # 15. Chofer Remisión
         "placas_remision",     # 16. Plac. Rem. / Placas Remisión
-        "factura_doc",         # 17. Factura / Doc.facturación
-        "factura_valor",       # 18. Neto.1 / Valor Factura / Valor neto.1
-        "ruta_id",             # 19. RutaTransp
-        "ruta_nombre",         # 20. Nombre de ruta
+        "4_fch_fin_carga",     # 17. Fe.fin.carg. / Fecha fin de carga
+        "4_hr_fin_carga",      # 18. Hr.fin.carg. / Hora fin de carga
+        "factura_doc",         # 19. Factura / Doc.facturación
+        "factura_valor",       # 20. Neto.1 / Valor Factura / Valor neto.1
+        "ruta_id",             # 21. RutaTransp
+        "ruta_nombre",         # 22. Nombre de ruta
     ],
     # Respaldo para archivos antiguos de 19 columnas que no tenían 'entrega_pos'
     "columnas_fijas_alt": {
