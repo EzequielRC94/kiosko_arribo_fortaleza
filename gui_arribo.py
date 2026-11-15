@@ -20,7 +20,8 @@ from manager_logs import LogManager
 from manager_cloudfort import CloudFortManager
 from mailer import EmailManager
 from manager_arribos import ArribosManager
-from manager_descargas import DescargasManager, configurar_icono_app
+from manager_descargas import DescargasManager
+from gui_selector_planta import configurar_icono_app, obtener_configuracion_inicial
 from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
 from _zql_robot import obtener_datos_remision as obtener_datos_remision_robot
 
@@ -689,8 +690,8 @@ class AppWindow(QMainWindow):
         """)
         
         # ====================================================================
-        # CONFIGURACIÓN HOMOLOGADA DEL ÍCONO (TÍTULO Y BARRA DE TAREAS)
-        configurar_icono_app(self, app_id="kiosko.autoarribo.produccion.1.0")
+        # CONFIGURACIÓN HOMOLOGADA DEL ÍCONO (HEREDADA DE gui_selector_planta)
+        configurar_icono_app(self)
 
         # Poner el cursor de manita a todos los botones de esta ventana
         for boton in self.findChildren(QPushButton):
@@ -1661,10 +1662,8 @@ class AppWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    configurar_icono_app(app_id="kiosko.autoarribo.produccion.1.0")
     
-    # 1. Mostrar el selector unificado
-    from gui_selector_planta import obtener_configuracion_inicial
+    # 1. Mostrar el selector unificado (configura y hereda el .ico automáticamente)
     session_config = obtener_configuracion_inicial()
     
     if session_config:

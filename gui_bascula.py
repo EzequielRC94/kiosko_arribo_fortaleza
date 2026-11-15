@@ -18,15 +18,18 @@ from PyQt5.QtCore import Qt, QTimer, QSize, QDate
 from manager_arribos import ArribosManager
 from prevent_sleep import evitar_bloqueo_windows, restaurar_energia_windows
 from manager_sap import SAPManager
-from manager_descargas import DescargasManager, configurar_icono_app  
+from manager_descargas import DescargasManager
+from gui_selector_planta import configurar_icono_app, obtener_configuracion_inicial
 from session_data import SessionData
 from catalogos import CATALOGO_PLANTAS, CATALOGO_MATERIALES
 from parquets import (
     actualizar_parquet_vt16,
     actualizar_parquet_zsdmx249,
+    actualizar_parquet_zsdmx389,
     obtener_df_249,
     obtener_oferta_plantas,
     obtener_rutas_transaccion,
+    obtener_tablero_389_en_proceso,
 )
 
 # Configuración de las "Pestañas" o Vistas del Carrusel
@@ -172,7 +175,7 @@ class DashboardSalidasWidget(QWidget):
             }
             QPushButton:hover { background-color: #115E59; }
         """)
-        self.btn_sync_sap.clicked.connect(self.parent_win._ejecutar_robot_zsdmx_bascula)
+        self.btn_sync_sap.clicked.connect(self.parent_win._robot_bascula)
 
         header_layout.addWidget(self.lbl_titulo_planta)
         header_layout.addWidget(self.lbl_fecha_larga)
@@ -672,7 +675,7 @@ class VentanaBasculaMain(QMainWindow):
         self.session_data = session_data
         self.nombre_planta = session_data.planta_gui_nombre # <--
         self.codigos_sap = session_data.planta_gui_codigos # <--
-        self.intervalo_robot_minutos = 10
+        
 
 
         # --- CONFIGURACIÓN DINÁMICA DE VISTAS ---
@@ -704,7 +707,7 @@ class VentanaBasculaMain(QMainWindow):
         
         # UI Config
         self.setWindowTitle(f"Control de Báscula - {session_data.planta_gui_nombre}")
-        # self.showMaximized() QUITAMOS de aquí (lo haremos al final cuando ya esté todo construido)
+        self.setGeometry(100, 100, 1200, 700)
         self.setMinimumSize(1024, 700) # Un tamaño base seguro por si el usuario restaura la ventana
         self.setStyleSheet("background-color: #FFFFFF;")
 
@@ -713,8 +716,8 @@ class VentanaBasculaMain(QMainWindow):
         self.shortcut_f5.activated.connect(self.cambiar_vista)
 
         # ====================================================================
-        # CONFIGURACIÓN HOMOLOGADA DEL ÍCONO (TÍTULO Y BARRA DE TAREAS)
-        configurar_icono_app(self, app_id="kiosko.bascula.produccion.1.0")
+        # CONFIGURACIÓN HOMOLOGADA DEL ÍCONO (HEREDADA DE gui_selector_planta)
+        configurar_icono_app(self)
 
         # Layout Principal
         central_widget = QWidget()
@@ -862,15 +865,16 @@ class VentanaBasculaMain(QMainWindow):
         # 2. Instanciar el manager de arribos
         self.arribos_manager = ArribosManager()
 
-        # 3. Sincronización ligera inicial de parquets (vt16, 249 y oferta_planta)
+        # 3. Sincronización ligera inicial de parquets (389, vt16, 249 y oferta_planta)
         try:
+            actualizar_parquet_zsdmx389(ruta_base_drive=self.ruta_base_drive)
             actualizar_parquet_vt16()
             actualizar_parquet_zsdmx249()
             obtener_oferta_plantas(ruta_base_drive=self.ruta_base_drive, limite_minutos=999)
         except Exception as e_pq_ini:
             print(f"⚠️ Aviso al sincronizar parquets en arranque: {e_pq_ini}")
 
-        self.cargar_datos_reales()
+        self.cargar_datos()
         self.actualizar_interfaz_vista()
 
          # 💻 KEEP-ALIVE WINDOWS: Evitamos que la gui entre en reposo
@@ -880,39 +884,13 @@ class VentanaBasculaMain(QMainWindow):
         
         # 4. Timer 
         # --- TEMPORIZADOR PARA ROBOT DESCARGA ZSDMX389, ZSDMX249 Y VT16 ---
+        self.intervalo_robot_minutos = 10
         self.timer_robot_sap = QTimer(self)
         tiempo_robot_ms = self.intervalo_robot_minutos * 60 * 1000
         print(f"🤖 [SAP] Robot ZSDMX389 + ZSDMX249 + VT16 iniciado. Intervalo: {self.intervalo_robot_minutos} min")
         self.timer_robot_sap.start(tiempo_robot_ms)
-        self.timer_robot_sap.timeout.connect(self._ejecutar_robot_zsdmx_bascula)
+        self.timer_robot_sap.timeout.connect(self._robot_bascula)
     
-    def mostrar_mensaje_estado(self, msg: str, es_correcto: bool):
-        """
-        'aplicar_color_estado'.
-        Muestra texto en la barra inferior (statusBar) con fondo y letra condicional.
-        """
-        if es_correcto:
-            # Estado Válido / Éxito (Fondo Verde Claro, Texto Verde Oscuro)
-            estilo = """
-                QStatusBar { 
-                    background-color: rgb(198, 239, 206); 
-                    color: rgb(0, 97, 0); 
-                    font-weight: bold; 
-                }
-            """
-        else:
-            # Estado Inválido / Error (Fondo Rosa, Texto Rojo Oscuro)
-            estilo = """
-                QStatusBar { 
-                    background-color: rgb(255, 199, 206); 
-                    color: rgb(156, 0, 6); 
-                    font-weight: bold; 
-                }
-            """
-        
-        # Aplicamos el color y mandamos el texto a la pantalla
-        self.statusBar().setStyleSheet(estilo)
-        self.statusBar().showMessage(msg, 10000) # El 10000 indica que el mensaje se borrará solo a los 10 segundos
     # ==========================================================================
     # LÓGICA DE VISTAS
     # ==========================================================================
@@ -940,7 +918,7 @@ class VentanaBasculaMain(QMainWindow):
         """
         Abre gui_arribo.py en modo satélite/pocket reutilizando los datos de planta
         de la sesión actual de Báscula. Al concluir el arribo, cierra la ventana
-        y ejecuta cargar_datos_reales() para reflejar el camión en la tabla.
+        y ejecuta cargar_datos() para reflejar el camión en la tabla.
         """
         from gui_arribo import AppWindow
 
@@ -953,7 +931,7 @@ class VentanaBasculaMain(QMainWindow):
 
         self.ventana_arribo_pocket = AppWindow(session_config=session_arribo, modo_bascula=True)
         self.ventana_arribo_pocket.setWindowModality(Qt.WindowModality.ApplicationModal)
-        self.ventana_arribo_pocket.arribo_completado_signal.connect(self.cargar_datos_reales)
+        self.ventana_arribo_pocket.arribo_completado_signal.connect(self.cargar_datos)
         self.ventana_arribo_pocket.show()
 
     def actualizar_interfaz_vista(self):
@@ -997,7 +975,7 @@ class VentanaBasculaMain(QMainWindow):
                 continue
 
             # 2. Filtro por Grupo de Material (envasado o granel)
-            if x_remision.get("gpo_material") != filtro_gpo:
+            if str(x_remision.get("gpo_material", "")).lower() != str(filtro_gpo).lower():
                 continue
 
             # 3. Filtro por Centro de Expedición (Solo aplica si la vista tiene un "ce" específico como Tula)
@@ -1055,8 +1033,16 @@ class VentanaBasculaMain(QMainWindow):
             self.tabla.setCellWidget(row, 0, chk_widget)
 
             try:
-                # OJO: Ajusta "%d.%m.%Y %H:%M:%S" al formato exacto que te da SAP en el CSV
-                fch_obj = datetime.strptime(datos["fch_planif"], "%d.%m.%Y %H:%M:%S")
+                fch_str_raw = str(datos.get("fch_planif", "")).strip()
+                fch_obj = None
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M:%S", "%Y-%m-%d", "%d.%m.%Y"):
+                    try:
+                        fch_obj = datetime.strptime(fch_str_raw, fmt)
+                        break
+                    except ValueError:
+                        continue
+                if fch_obj is None:
+                    raise ValueError("Formato de fecha no reconocido")
                 delta = datetime.now() - fch_obj
                 
                 dias = delta.days
@@ -1067,7 +1053,7 @@ class VentanaBasculaMain(QMainWindow):
                     tiempo_espera = f"{dias}d {horas}h"
                 else:
                     tiempo_espera = f"{horas}h {minutos}m"
-            except:
+            except Exception:
                 tiempo_espera = "---" # Por si SAP manda un formato raro o vacío
 
             modalidad = str(datos.get("modalidad", ""))[:3].upper()
@@ -1236,22 +1222,23 @@ class VentanaBasculaMain(QMainWindow):
                 )
                 
     # ==========================================================================
-    # CARGA DE DATOS REALES Y SINCRONIZACIÓN DE PARQUETS (249, VT16, OFERTA)
+    # CARGA DE DATOS Y SINCRONIZACIÓN DE PARQUETS (389, 249, VT16, OFERTA)
     # ==========================================================================
-    def _ejecutar_robot_zsdmx_bascula(self):
+    def _robot_bascula(self):
         """
         Orquestación periódica del Robot de Báscula (cada 10 min):
         - Descarga las remisiones EN PROCESO (ZSDMX389).
+        - Actualiza 389_en_proceso.parquet y 389_pendientes.parquet con CONFIG_389.
         - Descarga los últimos 2 días (ayer y hoy) de ZSDMX249 (límite 10 min).
         - Descarga VT16 del mes en curso (límite 10 min).
         - Actualiza vt16.parquet y consolida/enriquece 249.parquet (horas, turnos y modalidades).
         - Actualiza oferta_planta.parquet (1 vez al día).
-        - Recarga datos en vivo para el tablero de báscula y el Dashboard 249.
+        - Recarga datos desde 389_en_proceso.parquet para el tablero de báscula y el Dashboard 249.
         - Se ejecuta en Modo Túnel / Fila Virtual para no colisionar con llamados VT02N ni nuevos arribos.
         """
         import time
 
-        def _tarea_descarga_bascula():
+        def _tareas_descargas_bascula():
             if not self.sap_manager.validar_conexion():
                 return
             print(f"⏳ [{time.strftime('%H:%M:%S')}] [ROBOT BÁSCULA] Iniciando actualización (ZSDMX389 + ZSDMX249 + VT16)...")
@@ -1261,6 +1248,9 @@ class VentanaBasculaMain(QMainWindow):
                     self.ruta_base_drive,
                     tipo_descarga="en_proceso",
                 )
+
+                # 1.1. Crear/Actualizar 389_en_proceso.parquet y 389_pendientes.parquet (CONFIG_389)
+                res_pq_389 = actualizar_parquet_zsdmx389(ruta_base_drive=self.ruta_base_drive)
 
                 # 2. Descarga ZSDMX249 (ayer y hoy -> dias_atras=1, validando antigüedad > 10 min)
                 res_249 = self.manager_descargas.zsdmx249_robot(
@@ -1290,8 +1280,8 @@ class VentanaBasculaMain(QMainWindow):
                 ok_249 = res_249.get("estatus", False)
                 ok_vt16 = res_vt16.get("estatus", False)
 
-                # Recargar datos de la vista activa y del Dashboard 249
-                self.cargar_datos_reales()
+                # Recargar datos de la vista activa (desde 389_en_proceso.parquet) y del Dashboard 249
+                self.cargar_datos()
 
                 if ok_389 and ok_249 and ok_vt16:
                     msg_exito = f"SAP Sincronizado | 389 OK | 249 OK | VT16 OK"
@@ -1313,79 +1303,83 @@ class VentanaBasculaMain(QMainWindow):
 
         self.sap_manager.ejecutar_o_encolar(
             "Robot Báscula: ZSDMX389 + ZSDMX249 + VT16",
-            _tarea_descarga_bascula
+            _tareas_descargas_bascula
         )
 
-    def cargar_datos_reales(self):
-        """Extrae la data en vivo del Excel ZSDMX389 (En Proceso) y actualiza df_249."""
+    def cargar_df_249(self, fecha_str: str = None):
+            """
+            Lee '249.parquet', filtra por los códigos de centro de la planta activa
+            (self.session_data.planta_gui_codigos) y por la fecha seleccionada,
+            guarda el resultado en self.df_249 y actualiza el Dashboard.
+            """
+            try:
+                if not fecha_str:
+                    fecha_str = self.dashboard_widget.obtener_fecha_seleccionada_str()
+    
+                df_planta_actual = obtener_df_249(
+                    codigos_planta=self.session_data.planta_gui_codigos,
+                    fecha_sm=fecha_str,
+                )
+    
+                # Si en el arranque inicial hoy aún no tiene registros en 249.parquet,
+                # seleccionamos automáticamente la fecha más reciente con salidas de la planta
+                if df_planta_actual.empty and not self._auto_fecha_249_aplicada:
+                    self._auto_fecha_249_aplicada = True
+                    df_hist = obtener_df_249(
+                        codigos_planta=self.session_data.planta_gui_codigos,
+                        fecha_sm=None,
+                    )
+                    if not df_hist.empty and "fch_sm_real" in df_hist.columns:
+                        fechas_validas = sorted(
+                            [f for f in df_hist["fch_sm_real"].dropna().astype(str).unique() if f and f != "NaT"]
+                        )
+                        if fechas_validas:
+                            ultima_fch = fechas_validas[-1]
+                            qdate_ult = QDate.fromString(ultima_fch, "yyyy-MM-dd")
+                            if qdate_ult.isValid():
+                                self.dashboard_widget.date_picker.blockSignals(True)
+                                self.dashboard_widget.date_picker.setDate(qdate_ult)
+                                self.dashboard_widget.date_picker.blockSignals(False)
+                                fecha_str = ultima_fch
+                                df_planta_actual = df_hist[df_hist["fch_sm_real"] == fecha_str].copy()
+                else:
+                    self._auto_fecha_249_aplicada = True
+    
+                self.df_249 = df_planta_actual
+                metricas = self.calcular_metricas_dashboard_249(fecha_str=fecha_str)
+                self.dashboard_widget.renderizar_metricas(metricas)
+    
+            except Exception as e:
+                print(f"⚠️ Error al cargar/calcular df_249 para el Dashboard: {e}")
+    
+    def cargar_datos(self):
+        """
+        Manda cargar la información desde '389_en_proceso.parquet', estructura los estatus
+        de unidades en proceso de carga para gui_bascula, actualiza df_249 y refresca la vista activa.
+        """
         try:
-            # Pasamos rem=None para que traiga la lista completa y tipo_archivo="en_proceso"
-            nuevos_datos = self.arribos_manager.leer_zsdmx389_local(
-                ruta_base_drive=self.ruta_base_drive, 
-                rem=None, 
-                tipo_archivo="en_proceso",
-                codigos_planta=self.session_data.planta_gui_codigos
+            nuevos_datos = obtener_tablero_389_en_proceso(
+                codigos_planta=self.session_data.planta_gui_codigos,
+                ruta_base_drive=self.ruta_base_drive,
             )
-            
-            # TRUCO: Conservar el estatus visual "LLAMADO"
-            transportes_llamados = [x_remision["remision"] for x_remision in self.datos_totales if x_remision.get("estatus") == "LLAMADO"]
+
+            # Conservar el estatus visual "LLAMADO" para remisiones ya llamadas en la sesión
+            transportes_llamados = {
+                str(x_remision.get("remision", "")).strip()
+                for x_remision in self.datos_totales
+                if x_remision.get("estatus") == "LLAMADO"
+            }
 
             for nuevo_cam in nuevos_datos:
-                if nuevo_cam["remision"] in transportes_llamados:
+                if str(nuevo_cam.get("remision", "")).strip() in transportes_llamados:
                     nuevo_cam["estatus"] = "LLAMADO"
 
             self.datos_totales = nuevos_datos
             self.cargar_df_249()
             self.actualizar_interfaz_vista()
-            
-        except Exception as e:
-            print(f"⚠️ Aviso: No se pudo refrescar el tablero de báscula: {e}")
-
-    def cargar_df_249(self, fecha_str: str = None):
-        """
-        Lee '249.parquet', filtra por los códigos de centro de la planta activa
-        (self.session_data.planta_gui_codigos) y por la fecha seleccionada,
-        guarda el resultado en self.df_249 y actualiza el Dashboard minimalista.
-        """
-        try:
-            if not fecha_str:
-                fecha_str = self.dashboard_widget.obtener_fecha_seleccionada_str()
-
-            df_planta_actual = obtener_df_249(
-                codigos_planta=self.session_data.planta_gui_codigos,
-                fecha_sm=fecha_str,
-            )
-
-            # Si en el arranque inicial hoy aún no tiene registros en 249.parquet,
-            # seleccionamos automáticamente la fecha más reciente con salidas de la planta
-            if df_planta_actual.empty and not self._auto_fecha_249_aplicada:
-                self._auto_fecha_249_aplicada = True
-                df_hist = obtener_df_249(
-                    codigos_planta=self.session_data.planta_gui_codigos,
-                    fecha_sm=None,
-                )
-                if not df_hist.empty and "fch_sm_real" in df_hist.columns:
-                    fechas_validas = sorted(
-                        [f for f in df_hist["fch_sm_real"].dropna().astype(str).unique() if f and f != "NaT"]
-                    )
-                    if fechas_validas:
-                        ultima_fch = fechas_validas[-1]
-                        qdate_ult = QDate.fromString(ultima_fch, "yyyy-MM-dd")
-                        if qdate_ult.isValid():
-                            self.dashboard_widget.date_picker.blockSignals(True)
-                            self.dashboard_widget.date_picker.setDate(qdate_ult)
-                            self.dashboard_widget.date_picker.blockSignals(False)
-                            fecha_str = ultima_fch
-                            df_planta_actual = df_hist[df_hist["fch_sm_real"] == fecha_str].copy()
-            else:
-                self._auto_fecha_249_aplicada = True
-
-            self.df_249 = df_planta_actual
-            metricas = self.calcular_metricas_dashboard_249(fecha_str=fecha_str)
-            self.dashboard_widget.renderizar_metricas(metricas)
 
         except Exception as e:
-            print(f"⚠️ Error al cargar/calcular df_249 para el Dashboard: {e}")
+            print(f"⚠️ Aviso: No se pudo refrescar el tablero de báscula desde 389_en_proceso.parquet: {e}")
 
     def calcular_oferta_planta_desde_parquet(self, fecha_dt: datetime) -> dict:
         """
@@ -1698,12 +1692,14 @@ class VentanaBasculaMain(QMainWindow):
             fch_p_str = str(cam.get("fch_planif", "")).strip()
             es_antiguo = False
             if fch_p_str:
-                try:
-                    dt_p = datetime.strptime(fch_p_str, "%d.%m.%Y %H:%M:%S")
-                    if dt_p.date() < ahora.date():
-                        es_antiguo = True
-                except Exception:
-                    pass
+                for fmt_p in ("%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M:%S", "%Y-%m-%d", "%d.%m.%Y"):
+                    try:
+                        dt_p = datetime.strptime(fch_p_str, fmt_p)
+                        if dt_p.date() < ahora.date():
+                            es_antiguo = True
+                        break
+                    except ValueError:
+                        continue
             if es_antiguo:
                 arribo_mas_1d += ton_cam
             else:
@@ -1819,21 +1815,48 @@ class VentanaBasculaMain(QMainWindow):
             "filas_productos_granel": filas_gra,
         }
 
+    def mostrar_mensaje_estado(self, msg: str, es_correcto: bool):
+        """
+        'aplicar_color_estado'.
+        Muestra texto en la barra inferior (statusBar) con fondo y letra condicional.
+        """
+        if es_correcto:
+            # Estado Válido / Éxito (Fondo Verde Claro, Texto Verde Oscuro)
+            estilo = """
+                QStatusBar { 
+                    background-color: rgb(198, 239, 206); 
+                    color: rgb(0, 97, 0); 
+                    font-weight: bold; 
+                }
+            """
+        else:
+            # Estado Inválido / Error (Fondo Rosa, Texto Rojo Oscuro)
+            estilo = """
+                QStatusBar { 
+                    background-color: rgb(255, 199, 206); 
+                    color: rgb(156, 0, 6); 
+                    font-weight: bold; 
+                }
+            """
+        
+        # Aplicamos el color y mandamos el texto a la pantalla
+        self.statusBar().setStyleSheet(estilo)
+        self.statusBar().showMessage(msg, 10000) # El 10000 indica que el mensaje se borrará solo a los 10 segundos
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    configurar_icono_app(app_id="kiosko.bascula.produccion.1.0")
 
     font = QFont("Arial", 12)
     app.setFont(font)
     
-    # Usar el selector unificado
-    from gui_selector_planta import obtener_configuracion_inicial
+    # Usar el selector unificado (configura y hereda el .ico automáticamente)
     session_config = obtener_configuracion_inicial()
     
     if session_config:
         ventana = VentanaBasculaMain(session_config)
         print(f"🏢 Kiosko iniciado en {ventana.session_data.planta_gui_nombre} {ventana.session_data.planta_gui_codigos}")
+        ventana.show()
         ventana.showMaximized()
         sys.exit(app.exec_())
     else:

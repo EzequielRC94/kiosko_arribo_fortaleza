@@ -284,6 +284,11 @@ class ArribosManager:
                     f_append.write(linea + "\n")
 
             print(f"✅ Inyectadas {len(nuevas_lineas)} posición(es) en {os.path.basename(archivo_reciente)}")
+            try:
+                from parquets import actualizar_parquet_zsdmx389
+                actualizar_parquet_zsdmx389(ruta_base_drive=ruta_base_drive, tipo_archivo=tipo_archivo, forzar=True)
+            except Exception as e_pq:
+                print(f"⚠️ Aviso sincronizando 389_{tipo_archivo}.parquet tras inyección local: {e_pq}")
             return True
 
         except Exception as e:

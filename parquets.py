@@ -15,6 +15,88 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
 # CONFIGURACIÓN DE ESQUEMAS Y TRANSFORMACIONES POR TRANSACCIÓN
 # ==============================================================================
 
+CONFIG_389 = {
+    "columna_ancla": "entrega",
+    "llaves_dedup": ["entrega", "entrega_pos"], # llave para eliminar duplicados
+    "skiprows": 3, # Número de filas a saltar antes de leer encabezados (para zsdmx389)
+    "columnas_extra": [
+        "material_familia",
+        "material_nom_corto",
+    ],
+    "columnas_fijas": [
+        "clase_expedicion",        # 1. Ex / Clase de expedición
+        "c_exp",                   # 2. Ce. / centro de expedición
+        "entrega",                 # 3. Entrega
+        "entrega_pos",             # 4. Posición de entrega
+        "txt_cabecera",            # 5. Texto cabecera
+        "material_cod",            # 6. Material / Código de material
+        "mat_descripcion",         # 7. Denominación / Descripción del material
+        "ton",                     # 8. Ctd.entr. / Cantidad entrega (ton)
+        "gpo_mat",                 # 9. GrM2 / Grupo de material 2 F06 = envasado / F07 = granel
+        "clte_solicitante",        # 10. Solic. / Cliente solicitante
+        "clte_destinatario",       # 11. Nombre 1 / Nombre del cliente destinatario
+        "poblacion_destino",       # 12. Pob. Dest. / Población destino
+        "clte_solic_num",          # 13. Número de cliente solicitante
+        "clte_dest_num",           # 14. Número de cliente destinatario
+        "ruta_id",                 # 15. RutaTransp
+        "ej_comercial_nom",        # 16. Vendedor / Ejecutivo comercial
+        "modalidad",               # 17. (RETIRADO / ENTREGADO)
+        "fecha_creacion_entrega",  # 18. Fe.Creació / Fecha creación entrega
+        "hr_creacion_entrega",     # 19. Hr.Creació / Hora creación entrega
+        "fecha_cita_entrega",      # 20. Fe.entrega / Fecha cita entrega
+        "pedido",                  # 21. Pedido
+        "crea_entrega",            # 22. Creador En / Creador de entrega
+        "fecha_salida_mercancia",  # 23. Fe.SM real / Fecha salida mercancía real (vacio si no se ha despachado)
+        "fch_carga_plan",          # 24. Fecha planeada de carga segun SAP
+        "calle",                   # 25. Calle de entrega
+        "cod_postal",              # 26. Código postal de entrega
+        "region_destino",          # 27. RegionDest / Region Dest.
+        "operador_remision",       # 28. Chofer Remisión
+        "placas_remision",         # 29. Plac. Rem. / Placas Remisión
+        "clase_entrega",           # 30. Clase de entrega
+        "transporte",              # 31. Transporte / Nº de transporte
+        "fch_crea_transporte",     # 32. Fecha creacion transporte
+        "placas_transporte",       # 33. Placas transporte
+        "ruta_transporte",         # 34. Ruta transporte
+        "nombre_ruta_transporte",  # 35. Nombre de ruta transporte
+        "crea_transporte",         # 36. Creador transporte
+        "texto_adic_1",            # 37. Texto adic.1
+        "estatus_transporte",      # 38. Estatus transporte
+        "1_fch_planificacion",     # 39. Fecha planificación transporte real
+        "1_hr_planificacion",      # 40. Hora planificación transporte real
+        "2_fch_bascula_entrada",   # 41. Fecha registro en báscula
+        "2_hr_bascula_entrada",    # 42. Hora registro en báscula
+        "3_fch_inicio_carga",      # 43. Fecha inicio de carga
+        "3_hr_inicio_carga",       # 44. Hora inicio de carga
+        "4_fch_fin_carga",         # 45. Fecha fin de carga
+        "4_hr_fin_carga",          # 46. Hora fin de carga
+    ],
+    # Respaldo para archivos previos de 20 columnas del layout anterior de ZSDMX389
+    "columnas_fijas_alt": {
+        20: [
+            "entrega", "entrega_pos", "c_exp", "gpo_mat", "ton",
+            "material_cod", "mat_descripcion", "transporte", "placas_remision",
+            "operador_remision", "clte_destinatario", "clte_dest_num",
+            "clte_solicitante", "clte_solic_num", "poblacion_destino",
+            "ruta_id", "modalidad", "clase_expedicion", "clase_entrega",
+            "1_fch_planificacion",
+        ]
+    },
+    "cols_int": [],
+    "cols_float": [
+        "ton"
+    ],
+    "cols_date": [
+        "fecha_creacion_entrega", "fecha_cita_entrega", "fecha_salida_mercancia",
+        "fch_carga_plan", "fch_crea_transporte", "1_fch_planificacion",
+        "2_fch_bascula_entrada", "3_fch_inicio_carga", "4_fch_fin_carga"
+    ],
+    "cols_time": [
+        "hr_creacion_entrega", "1_hr_planificacion", "2_hr_bascula_entrada",
+        "3_hr_inicio_carga", "4_hr_fin_carga"
+    ],
+}
+
 CONFIG_267 = {
     "columna_ancla": "entrega",
     "llaves_dedup": ["entrega", "entrega_pos"], # llave para eliminar duplicados
@@ -213,7 +295,7 @@ CONFIG_FBL4N = {
 def obtener_rutas_transaccion(transaccion: str) -> dict:
     """
     Construye dinámicamente las rutas de origen, parquet y memoria_txt
-    a partir del número o nombre de transacción (ej. '249', '267', '389' o 'zsdmx249').
+    a partir del número o nombre de transacción (ej. '249', '267', '389_en_proceso', '389_pendientes' o 'zsdmx249').
     """
     cod_tx = str(transaccion).lower().replace("zsdmx", "").strip()
 
@@ -221,12 +303,21 @@ def obtener_rutas_transaccion(transaccion: str) -> dict:
     carpeta_general = os.path.join(perfil_usuario, "Elementia S. A", "kiosko logistica cem - Documentos")
     anno = str(datetime.now().year)
 
-    # Identificar la carpeta de origen (soporta 'zsdmx267', 'vt16', 'fbl4n', etc.)
-    candidatos_carpeta = [
-        os.path.join(carpeta_general, anno, f"zsdmx{cod_tx}"),
-        os.path.join(carpeta_general, anno, str(transaccion).lower()),
-        os.path.join(carpeta_general, anno, cod_tx),
-    ]
+    # Identificar la carpeta de origen (soporta '389_en_proceso', '389_pendientes', 'zsdmx267', 'vt16', 'fbl4n', etc.)
+    if cod_tx.startswith("389_"):
+        subtipo_389 = cod_tx.split("389_", 1)[1]
+        candidatos_carpeta = [
+            os.path.join(carpeta_general, anno, "zsdmx389", subtipo_389),
+            os.path.join(carpeta_general, anno, "389", subtipo_389),
+            os.path.join(carpeta_general, anno, "zsdmx389"),
+        ]
+    else:
+        candidatos_carpeta = [
+            os.path.join(carpeta_general, anno, f"zsdmx{cod_tx}"),
+            os.path.join(carpeta_general, anno, str(transaccion).lower()),
+            os.path.join(carpeta_general, anno, cod_tx),
+        ]
+
     carpeta_origen = candidatos_carpeta[0]
     for c in candidatos_carpeta:
         if os.path.exists(c):
@@ -865,6 +956,440 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
         return {"estatus": False, "msg": str(e)}
 
 
+def enriquecer_389(df_389: pd.DataFrame) -> pd.DataFrame:
+    """
+    Enriquece el DataFrame de ZSDMX389 con CATALOGO_MATERIALES:
+    1. Genera 'material_familia': cruza 'material_cod' con CATALOGO_MATERIALES['grupo']
+       y usa 'gpo_mat' (F06 = envasado, F07 = granel) como respaldo.
+    2. Genera 'material_nom_corto': cruza 'material_cod' con CATALOGO_MATERIALES['desc_nom_corto']
+       y usa 'mat_descripcion' como respaldo.
+    """
+    if df_389 is None or df_389.empty:
+        return df_389
+
+    from catalogos import CATALOGO_MATERIALES
+
+    mapa_grupo = {
+        str(k).strip().lstrip("0"): str(v.get("grupo", "")).strip().lower()
+        for k, v in CATALOGO_MATERIALES.items()
+    }
+    mapa_nom_corto = {
+        str(k).strip().lstrip("0"): str(v.get("desc_nom_corto", "")).strip()
+        for k, v in CATALOGO_MATERIALES.items()
+    }
+
+    cod_norm = (
+        _normalizar_serie_transporte(df_389["material_cod"])
+        if "material_cod" in df_389.columns
+        else pd.Series("", index=df_389.index)
+    )
+    fam_cat = cod_norm.map(mapa_grupo)
+
+    gpo_raw = (
+        df_389["gpo_mat"].fillna("").astype(str).str.strip().str.upper()
+        if "gpo_mat" in df_389.columns
+        else pd.Series("", index=df_389.index)
+    )
+    fam_respaldo = gpo_raw.map({"F06": "envasado", "F07": "granel"}).fillna("granel")
+    df_389["material_familia"] = fam_cat.where(fam_cat.notna() & (fam_cat != ""), fam_respaldo).str.lower()
+
+    nom_cat = cod_norm.map(mapa_nom_corto)
+    nom_respaldo = (
+        df_389["mat_descripcion"].fillna("").astype(str).str.strip()
+        if "mat_descripcion" in df_389.columns
+        else pd.Series("", index=df_389.index)
+    )
+    df_389["material_nom_corto"] = nom_cat.where(nom_cat.notna() & (nom_cat != ""), nom_respaldo)
+    return df_389
+
+
+CONFIG_389["fn_post_carga"] = enriquecer_389
+
+
+def _actualizar_parquet_389_subtipo(
+    tipo_archivo: str,
+    ruta_base_drive: str = None,
+    config: dict = None,
+    forzar: bool = False,
+) -> dict:
+    """
+    Lee el último archivo descargado en la subcarpeta 'zsdmx389/{tipo_archivo}'
+    (tomando como referencia leer_zsdmx389_local de manager_arribos.py)
+    y genera el Parquet de fotografía actual ('389_en_proceso.parquet' o '389_pendientes.parquet')
+    aplicando el esquema y tipificación de CONFIG_389.
+    """
+    config = config or CONFIG_389
+    cod_tx = f"389_{tipo_archivo}"
+    rutas = obtener_rutas_transaccion(cod_tx)
+    archivo_parquet = rutas["archivo_parquet"]
+    archivo_log = rutas["archivo_log"]
+
+    if ruta_base_drive:
+        carpeta_origen = os.path.join(ruta_base_drive, "zsdmx389", tipo_archivo)
+    else:
+        carpeta_origen = rutas["carpeta_origen"]
+
+    if not os.path.exists(carpeta_origen):
+        return {
+            "estatus": False,
+            "msg": f"La carpeta de origen no existe: {carpeta_origen}",
+            "archivo_parquet": archivo_parquet,
+            "procesados": 0,
+        }
+
+    # 1. Buscar el último archivo descargado en la carpeta 389/{tipo_archivo}
+    patrones_especificos = [
+        os.path.join(carpeta_origen, f"ZSDMX389_{tipo_archivo}_*.csv"),
+        os.path.join(carpeta_origen, f"ZSDMX389_{tipo_archivo}_*.xls"),
+        os.path.join(carpeta_origen, f"ZSDMX389_{tipo_archivo}_*.txt"),
+    ]
+    archivos = []
+    for p in patrones_especificos:
+        archivos.extend(glob.glob(p))
+
+    if not archivos:
+        for ext in ("*.csv", "*.xls", "*.txt"):
+            archivos.extend(glob.glob(os.path.join(carpeta_origen, ext)))
+
+    if not archivos:
+        return {
+            "estatus": False,
+            "msg": f"No se encontraron archivos en: {carpeta_origen}",
+            "archivo_parquet": archivo_parquet,
+            "procesados": 0,
+        }
+
+    archivo_reciente = max(set(archivos), key=os.path.getmtime)
+    nom_base = os.path.basename(archivo_reciente)
+    mtime_str = datetime.fromtimestamp(os.path.getmtime(archivo_reciente)).strftime("%Y-%m-%d %H:%M:%S")
+
+    memoria = _cargar_memoria_modificacion(archivo_log)
+    if not forzar and os.path.exists(archivo_parquet) and memoria.get(nom_base) == mtime_str:
+        print(f"ℹ️ [Parquet {cod_tx}] Sin cambios en el último archivo ({nom_base}). Parquet vigente.")
+        return {
+            "estatus": True,
+            "msg": f"Parquet {cod_tx} ya está actualizado con {nom_base}.",
+            "archivo_parquet": archivo_parquet,
+            "procesados": 0,
+        }
+
+    print(f"📦 [Parquet {cod_tx}] Procesando último archivo descargado: {nom_base} (Modificado: {mtime_str})...")
+    df_temp = _leer_archivo_sap_flexible(archivo_reciente, config=config)
+
+    columnas_fijas = config.get("columnas_fijas", [])
+    columna_ancla = config.get("columna_ancla", "entrega")
+    llaves_dedup = config.get("llaves_dedup", ["entrega", "entrega_pos"])
+    cols_extra = config.get("columnas_extra", [])
+
+    if df_temp is None or df_temp.empty:
+        # Si el reporte en_proceso o pendientes viene vacío, generar parquet vacío con el esquema de CONFIG_389
+        df_vacio = pd.DataFrame(columns=list(columnas_fijas) + list(cols_extra) + ["_archivo_origen"])
+        df_vacio.to_parquet(archivo_parquet, engine="fastparquet", index=False)
+        _guardar_memoria_modificacion(archivo_log, {nom_base: mtime_str})
+        return {
+            "estatus": True,
+            "msg": f"Archivo {nom_base} sin registros. Parquet {cod_tx} guardado vacío.",
+            "archivo_parquet": archivo_parquet,
+            "procesados": 1,
+        }
+
+    # 2. Asignar columnas fijas según CONFIG_389
+    if columnas_fijas:
+        if len(df_temp.columns) == len(columnas_fijas):
+            df_temp.columns = list(columnas_fijas)
+        elif "columnas_fijas_alt" in config and len(df_temp.columns) in config["columnas_fijas_alt"]:
+            alt_cols = config["columnas_fijas_alt"][len(df_temp.columns)]
+            df_temp.columns = list(alt_cols)
+            for col_faltante in columnas_fijas:
+                if col_faltante not in df_temp.columns:
+                    df_temp[col_faltante] = None
+        elif len(df_temp.columns) == len(columnas_fijas) - 1 and "txt_cabecera" in columnas_fijas:
+            # Si SAP exportó 45 columnas y la lista tiene 46 o viceversa, alinear posicionalmente
+            cols_recortadas = [c for c in columnas_fijas if c != "txt_cabecera"]
+            if len(df_temp.columns) == len(cols_recortadas):
+                df_temp.columns = cols_recortadas
+                df_temp["txt_cabecera"] = None
+        else:
+            print(
+                f"⚠️ Advertencia en {nom_base}: tiene {len(df_temp.columns)} columnas, "
+                f"pero CONFIG_389 define {len(columnas_fijas)}."
+            )
+
+    # 3. Filtrar por columna ancla ('entrega') y limpiar sufijos '.0' (como en leer_zsdmx389_local)
+    if columna_ancla:
+        df_temp = _filtrar_columna_ancla(df_temp, columna_ancla)
+
+    for col_limpiar in ["entrega", "entrega_pos", "material_cod", "transporte", "clte_solic_num", "clte_dest_num", "pedido"]:
+        if col_limpiar in df_temp.columns:
+            df_temp[col_limpiar] = (
+                df_temp[col_limpiar]
+                .fillna("")
+                .astype(str)
+                .str.replace(r"\.0$", "", regex=True)
+                .str.strip()
+            )
+
+    # 4. Deduplicar por entrega y entrega_pos conservando el último registro
+    if llaves_dedup:
+        llaves_presentes = [c for c in llaves_dedup if c in df_temp.columns]
+        if llaves_presentes:
+            df_temp = df_temp.drop_duplicates(subset=llaves_presentes, keep="last").copy()
+
+    df_temp["_archivo_origen"] = nom_base
+
+    # 5. Enriquecimiento (fn_post_carga -> enriquecer_389)
+    fn_post = config.get("fn_post_carga")
+    if callable(fn_post):
+        df_temp = fn_post(df_temp)
+
+    # 6. Tipificación según CONFIG_389 (cols_int, cols_float, cols_date, cols_time)
+    for col in config.get("cols_int", []):
+        if col in df_temp.columns:
+            df_temp[col] = pd.to_numeric(df_temp[col], errors="coerce").round().astype("Int64")
+
+    for col in config.get("cols_float", []):
+        if col in df_temp.columns:
+            df_temp[col] = pd.to_numeric(
+                df_temp[col].astype(str).str.replace(",", "").str.strip(),
+                errors="coerce",
+            )
+
+    for col in config.get("cols_date", []):
+        if col in df_temp.columns:
+            df_temp[col] = pd.to_datetime(
+                df_temp[col],
+                format="mixed",
+                dayfirst=True,
+                errors="coerce",
+            ).dt.strftime("%Y-%m-%d")
+
+    for col in config.get("cols_time", []):
+        if col in df_temp.columns:
+            df_temp[col] = pd.to_datetime(
+                df_temp[col].astype(str).str.strip(),
+                format="%H:%M:%S",
+                errors="coerce",
+            ).dt.strftime("%H:%M:%S")
+
+    if columnas_fijas:
+        cols_finales = [
+            c for c in list(columnas_fijas) + list(cols_extra) + ["_archivo_origen"]
+            if c in df_temp.columns
+        ]
+        df_temp = df_temp[cols_finales]
+
+    # 7. Guardar Parquet de fotografía actual y actualizar memoria
+    df_temp.to_parquet(archivo_parquet, engine="fastparquet", index=False)
+    _guardar_memoria_modificacion(archivo_log, {nom_base: mtime_str})
+
+    print(f"✅ Parquet {cod_tx}.parquet actualizado con éxito ({len(df_temp)} filas desde {nom_base}).")
+    return {
+        "estatus": True,
+        "msg": f"{cod_tx}.parquet actualizado ({len(df_temp)} filas desde {nom_base}).",
+        "archivo_parquet": archivo_parquet,
+        "procesados": 1,
+        "filas": len(df_temp),
+    }
+
+
+def actualizar_parquet_zsdmx389(
+    ruta_base_drive: str = None,
+    tipo_archivo: str = "ambos",
+    forzar: bool = False,
+) -> dict:
+    """
+    Crea y actualiza '389_en_proceso.parquet' y '389_pendientes.parquet'
+    usando el catálogo CONFIG_389 y tomando el último archivo descargado en cada subcarpeta de zsdmx389.
+    """
+    tipos = ["en_proceso", "pendientes"] if tipo_archivo == "ambos" else [tipo_archivo]
+    resultados = {}
+    mensajes = []
+    exito_al_menos_uno = False
+
+    for t in tipos:
+        res_t = _actualizar_parquet_389_subtipo(
+            tipo_archivo=t,
+            ruta_base_drive=ruta_base_drive,
+            config=CONFIG_389,
+            forzar=forzar,
+        )
+        resultados[t] = res_t
+        if res_t.get("estatus", False):
+            exito_al_menos_uno = True
+        mensajes.append(f"{t}: {res_t.get('msg', '')}")
+
+    return {
+        "estatus": exito_al_menos_uno,
+        "msg": " | ".join(mensajes),
+        "detalles": resultados,
+    }
+
+
+actualizar_parquet_389 = actualizar_parquet_zsdmx389
+
+
+def obtener_df_389(
+    tipo_archivo: str = "en_proceso",
+    codigos_planta: list = None,
+    ruta_base_drive: str = None,
+) -> pd.DataFrame:
+    """
+    Lee '389_en_proceso.parquet' (o '389_pendientes.parquet') y filtra opcionalmente
+    por los códigos de centro de expedición de la planta activa.
+    """
+    cod_tx = f"389_{tipo_archivo}"
+    rutas_389 = obtener_rutas_transaccion(cod_tx)
+    archivo_389 = rutas_389["archivo_parquet"]
+
+    if not os.path.exists(archivo_389):
+        _actualizar_parquet_389_subtipo(tipo_archivo=tipo_archivo, ruta_base_drive=ruta_base_drive)
+
+    if not os.path.exists(archivo_389):
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_parquet(archivo_389, engine="fastparquet")
+    except Exception:
+        try:
+            df = pd.read_parquet(archivo_389)
+        except Exception as e:
+            print(f"⚠️ Error leyendo {cod_tx}.parquet: {e}")
+            return pd.DataFrame()
+
+    if df.empty:
+        return df
+
+    if not {"material_familia", "material_nom_corto"}.issubset(set(df.columns)):
+        df = enriquecer_389(df)
+
+    df["ton"] = pd.to_numeric(df.get("ton", 0.0), errors="coerce").fillna(0.0)
+    df["c_exp"] = df.get("c_exp", "").fillna("").astype(str).str.strip().str.upper()
+
+    if codigos_planta:
+        cods_upper = [str(c).strip().upper() for c in codigos_planta if str(c).strip()]
+        if cods_upper:
+            df = df[df["c_exp"].isin(cods_upper)].copy()
+
+    return df.reset_index(drop=True)
+
+
+def obtener_tablero_389_en_proceso(
+    codigos_planta: list = None,
+    ruta_base_drive: str = None,
+) -> list:
+    """
+    Lee '389_en_proceso.parquet' y estructura la lista de remisiones en proceso
+    y sus estatus para poblar las vistas y el tablero de gui_bascula.py
+    (homologando la lógica que antes vivía en leer_zsdmx389_local de manager_arribos.py).
+    """
+    import re
+    from catalogos import CATALOGO_MATERIALES
+
+    # Sincronizar si el archivo CSV en_proceso cambió en disco (ej. nuevo arribo local)
+    _actualizar_parquet_389_subtipo(tipo_archivo="en_proceso", ruta_base_drive=ruta_base_drive)
+
+    df = obtener_df_389(
+        tipo_archivo="en_proceso",
+        codigos_planta=codigos_planta,
+        ruta_base_drive=ruta_base_drive,
+    )
+    if df is None or df.empty or "entrega" not in df.columns:
+        return []
+
+    def limpiar_operador(texto):
+        if not texto or str(texto).strip().lower() in ("nan", "none", "null"):
+            return "POR ASIGNAR"
+        t = re.sub(r"[^A-Za-zÁÉÍÓÚáéíóúÑñ\s]", "", str(texto))
+        t = re.sub(r"\s+", " ", t).strip().upper()
+        return t if t else "POR ASIGNAR"
+
+    def _val_str(val) -> str:
+        if val is None or pd.isna(val):
+            return ""
+        s = str(val).strip()
+        return "" if s.lower() in ("nan", "none", "null", "nat") else s
+
+    lista_tablero = []
+    grouped = df.groupby("entrega", sort=False)
+
+    for entrega, group in grouped:
+        row_cab = group.iloc[0]
+        c_exp = _val_str(row_cab.get("c_exp", "")).upper()
+
+        gpo_mat = _val_str(row_cab.get("gpo_mat", "")).upper()
+        fam_mat = _val_str(row_cab.get("material_familia", "")).lower()
+        if gpo_mat == "F06" or fam_mat == "envasado":
+            x_gpo_material = "envasado"
+        else:
+            x_gpo_material = "granel"
+
+        peso_total = float(pd.to_numeric(group["ton"], errors="coerce").fillna(0.0).sum())
+
+        materiales_desc = []
+        for _, row in group.iterrows():
+            mat_corto = _val_str(row.get("material_nom_corto", ""))
+            if not mat_corto:
+                mat_cod_limpio = _val_str(row.get("material_cod", "")).replace(".0", "").lstrip("0")
+                info_mat = CATALOGO_MATERIALES.get(mat_cod_limpio, {})
+                mat_corto = info_mat.get("desc_nom_corto") or _val_str(row.get("mat_descripcion", ""))
+            if mat_corto and mat_corto not in materiales_desc:
+                materiales_desc.append(mat_corto)
+
+        material_combinado = " / ".join(materiales_desc)
+
+        transporte_str = _val_str(row_cab.get("transporte", "")).replace(".0", "")
+        placas_str = _val_str(row_cab.get("placas_remision", "")) or _val_str(row_cab.get("placas_transporte", ""))
+        operador_crudo = _val_str(row_cab.get("operador_remision", ""))
+        destinatario_nom = _val_str(row_cab.get("clte_destinatario", "")) or _val_str(row_cab.get("clte_solicitante", ""))
+        modalidad = _val_str(row_cab.get("modalidad", ""))
+
+        fch_1 = _val_str(row_cab.get("1_fch_planificacion", "")) or _val_str(row_cab.get("fch_crea_transporte", ""))
+        hr_1 = _val_str(row_cab.get("1_hr_planificacion", ""))
+        if fch_1 and hr_1:
+            fch_planif = f"{fch_1} {hr_1}"
+        elif fch_1:
+            fch_planif = f"{fch_1} 00:00:00" if len(fch_1) == 10 else fch_1
+        else:
+            fch_planif = ""
+
+        # Determinar estatus operativo inicial desde 389_en_proceso.parquet
+        texto_adic_1 = _val_str(row_cab.get("texto_adic_1", ""))
+        txt_cabecera = _val_str(row_cab.get("txt_cabecera", ""))
+        estatus_transp = _val_str(row_cab.get("estatus_transporte", ""))
+        fch_basc = _val_str(row_cab.get("2_fch_bascula_entrada", ""))
+        fch_ini_carga = _val_str(row_cab.get("3_fch_inicio_carga", ""))
+        fch_fin_carga = _val_str(row_cab.get("4_fch_fin_carga", ""))
+
+        estatus_op = "ESPERA"
+        if "llamado" in texto_adic_1.lower() or "llamado" in txt_cabecera.lower():
+            estatus_op = "LLAMADO"
+
+        lista_tablero.append({
+            "remision": _val_str(entrega),
+            "c_exp": c_exp,
+            "destinatario_nom": destinatario_nom,
+            "modalidad": modalidad,
+            "material": material_combinado,
+            "gpo_material": x_gpo_material,
+            "toneladas": peso_total,
+            "placas": placas_str,
+            "operador": limpiar_operador(operador_crudo),
+            "transporte": transporte_str,
+            "fch_planif": fch_planif,
+            "estatus_transporte": estatus_transp,
+            "2_fch_bascula_entrada": fch_basc,
+            "2_hr_bascula_entrada": _val_str(row_cab.get("2_hr_bascula_entrada", "")),
+            "3_fch_inicio_carga": fch_ini_carga,
+            "3_hr_inicio_carga": _val_str(row_cab.get("3_hr_inicio_carga", "")),
+            "4_fch_fin_carga": fch_fin_carga,
+            "4_hr_fin_carga": _val_str(row_cab.get("4_hr_fin_carga", "")),
+            "estatus": estatus_op,
+            "turno": "PENDIENTE",
+        })
+
+    return lista_tablero
+
+
 # ==============================================================================
 # FUNCIONES DE ENTRADA POR TRANSACCIÓN
 # ==============================================================================
@@ -1168,6 +1693,7 @@ def actualizar_parquet_fbl4n() -> dict:
 
 
 if __name__ == "__main__":
+    actualizar_parquet_zsdmx389()
     actualizar_parquet_zsdmx249()
     actualizar_parquet_zsdmx267()
     actualizar_parquet_vt16()
