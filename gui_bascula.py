@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, 
     QFrame, QMessageBox, QCheckBox, QStackedWidget, QDateEdit, QProgressBar,
-    QScrollArea, QSizePolicy, QShortcut
+    QScrollArea, QSizePolicy, QShortcut, QGroupBox
 )
 from PyQt5.QtGui import QFont, QColor, QBrush, QIcon, QKeySequence
 from PyQt5.QtCore import Qt, QTimer, QSize, QDate
@@ -21,7 +21,12 @@ from manager_sap import SAPManager
 from manager_descargas import DescargasManager
 from gui_selector_planta import configurar_icono_app, obtener_configuracion_inicial
 from session_data import SessionData
-from catalogos import CATALOGO_PLANTAS, CATALOGO_MATERIALES
+from catalogos import (
+    CATALOGO_PLANTAS,
+    CATALOGO_MATERIALES,
+    CATALOGO_ESTATUS_BASCULA,
+    CATALOGO_UNIDADES,
+)
 from parquets import (
     actualizar_parquet_vt16,
     actualizar_parquet_zsdmx249,
@@ -50,6 +55,39 @@ def formatear_fecha_larga_es(fecha_dt: datetime) -> str:
     dia_sem = DIAS_SEMANA_ES[fecha_dt.weekday()]
     mes_nom = MESES_ES[fecha_dt.month]
     return f"{dia_sem}, {fecha_dt.day} de {mes_nom} de {fecha_dt.year}"
+
+
+def obtener_tipo_unidad(clase_expedicion: str) -> str:
+    """
+    Devuelve 'full' o 'sencilla' a partir de clase_expedicion (F1, F2, F3, F4, F5, F7)
+    consultando CATALOGO_UNIDADES.
+    """
+    cod = str(clase_expedicion or "").strip().upper()
+    info = CATALOGO_UNIDADES.get(cod, {})
+    return str(info.get("tipo_unidad", "sencilla")).strip().lower()
+
+
+def obtener_lineas_planta(nombre_planta: str, gpo: str = "", ce: str = "") -> list:
+    """Retorna la lista de configuraciones de líneas de carga para la planta/vista desde CATALOGO_PLANTAS."""
+    pl_u = str(nombre_planta or "").strip().upper()
+    gpo_l = str(gpo or "").strip().lower()
+    ce_u = str(ce or "").strip().upper()
+
+    lineas = []
+    for nom_p, info_p in CATALOGO_PLANTAS.items():
+        nom_c_u = str(info_p.get("nombre_centro", "")).strip().upper()
+        if pl_u == nom_p.upper() or (nom_c_u and nom_c_u in pl_u) or nom_p.upper() in pl_u:
+            lineas = info_p.get("capacidades_lineas", [])
+            break
+
+    filtradas = []
+    for ln in lineas:
+        if gpo_l and str(ln.get("gpo", "")).lower() != gpo_l:
+            continue
+        if ce_u and str(ln.get("ce", "")).upper() != ce_u:
+            continue
+        filtradas.append(ln)
+    return filtradas
 
 
 class DashboardSalidasWidget(QWidget):
@@ -349,25 +387,25 @@ class DashboardSalidasWidget(QWidget):
 
         top_tables_layout.addLayout(col_mix_centros, stretch=1)
 
-        # Sub-columna: Salidas por Turno (1er, 2do, 3er Turno)
+        # Sub-columna: Salidas por turno (1er, 2do, 3er turno)
         col_turnos = QVBoxLayout()
         col_turnos.setSpacing(6)
 
         self.tbl_turno_1 = self._crear_bloque_mix(
             col_turnos,
-            titulo="Salidas Mix Productos 1er Turno (00:00 - 06:59)",
+            titulo="Salidas Mix Productos 1er turno (00:00 - 06:59)",
             bg_header="#FDE8D7",
             fg_header="#431407",
         )
         self.tbl_turno_2 = self._crear_bloque_mix(
             col_turnos,
-            titulo="Salidas Mix Productos 2do Turno (07:00 - 14:59)",
+            titulo="Salidas Mix Productos 2do turno (07:00 - 14:59)",
             bg_header="#E2E0EC",
             fg_header="#1E1B4B",
         )
         self.tbl_turno_3 = self._crear_bloque_mix(
             col_turnos,
-            titulo="Salidas Mix Productos 3er Turno (15:00 - 23:59)",
+            titulo="Salidas Mix Productos 3er turno (15:00 - 23:59)",
             bg_header="#F8D8F6",
             fg_header="#4A044E",
         )
@@ -637,11 +675,11 @@ class DashboardSalidasWidget(QWidget):
                 factor_tend=factor_tend,
             )
 
-        # 5. Tablas por Turno
+        # 5. Tablas por turno
         turnos_map = [
-            ("1er Turno", self.tbl_turno_1),
-            ("2do Turno", self.tbl_turno_2),
-            ("3er Turno", self.tbl_turno_3),
+            ("1er turno", self.tbl_turno_1),
+            ("2do turno", self.tbl_turno_2),
+            ("3er turno", self.tbl_turno_3),
         ]
         for nom_t, tbl_t in turnos_map:
             dt_t = m["por_turno"].get(nom_t, {
@@ -676,8 +714,6 @@ class VentanaBasculaMain(QMainWindow):
         self.nombre_planta = session_data.planta_gui_nombre # <--
         self.codigos_sap = session_data.planta_gui_codigos # <--
         
-
-
         # --- CONFIGURACIÓN DINÁMICA DE VISTAS ---
         if "Tula" in self.nombre_planta:
             self.vistas_config = [
@@ -750,7 +786,16 @@ class VentanaBasculaMain(QMainWindow):
         layout_info.addWidget(self.lbl_vista_titulo)
         layout_info.addWidget(self.lbl_kpi_unidades)
         layout_info.addWidget(self.lbl_kpi_toneladas)
-        layout_info.addStretch()
+
+        # Panel de Capacidad por Punto de Carga (3 labels por línea)
+        self.frame_capacidad_lineas = QFrame()
+        self.frame_capacidad_lineas.setStyleSheet(
+            "QFrame { background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px; }"
+        )
+        self.layout_capacidad_lineas = QHBoxLayout(self.frame_capacidad_lineas)
+        self.layout_capacidad_lineas.setContentsMargins(8, 6, 8, 6)
+        self.layout_capacidad_lineas.setSpacing(10)
+        layout_info.addWidget(self.frame_capacidad_lineas, stretch=1)
         
         # B. Botones de Acción (Derecha)
         layout_botones = QVBoxLayout()
@@ -826,19 +871,30 @@ class VentanaBasculaMain(QMainWindow):
         # 2/3 INFERIOR: CONTENEDOR APILADO (TABLA OPERADORES / DASHBOARD 249)
         # ---------------------------------------------------------
         self.tabla = QTableWidget()
-        # Definimos las 12 columnas definitivas desde el inicio (Índices 0 al 11)
-        columnas = ["Sel", "Estatus", "Turno", "Remision", "Transporte", "Material", "Ton", "Mod", "Placas", "Operador", "Destinatario", "Espera"]
-        self.tabla.setColumnCount(len(columnas))
-        self.tabla.setHorizontalHeaderLabels(columnas)
+        # Definimos las 13 columnas definitivas desde el inicio (Índices 0 al 12)
+        self.columnas_tabla = [
+            "sel", "estatus", "turno", "remision", "transporte",
+            "material", "ton", "mod", "t un", "placas", 
+            "operador", "destinatario", "estadia"
+        ]
+        self.tabla.setColumnCount(len(self.columnas_tabla))
+        self.tabla.setHorizontalHeaderLabels(self.columnas_tabla)
         
         # Ajustamos al contenido las columnas de datos cortos
-        columnas_autoajuste = [0, 1, 2, 3, 4, 6, 7, 8, 9, 11]
+        columnas_autoajuste = [
+            i for i, col_nom in enumerate(self.columnas_tabla)
+            if col_nom not in ("material", "destinatario")
+        ]
         for col in columnas_autoajuste:
             self.tabla.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
             
-        # Dejamos que Material (5) y Destinatario (10) se estiren dinámicamente para llenar el monitor sin cortar la GUI
-        self.tabla.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        self.tabla.horizontalHeader().setSectionResizeMode(10, QHeaderView.ResizeMode.Stretch)
+        # Dejamos que material y destinatario se estiren dinámicamente para llenar el monitor sin cortar la GUI
+        self.tabla.horizontalHeader().setSectionResizeMode(
+            self.columnas_tabla.index("material"), QHeaderView.ResizeMode.Stretch
+        )
+        self.tabla.horizontalHeader().setSectionResizeMode(
+            self.columnas_tabla.index("destinatario"), QHeaderView.ResizeMode.Stretch
+        )
         
         self.tabla.setStyleSheet("""
             QTableWidget { background-color: white; font-size: 14px; gridline-color: #ccc; }
@@ -950,6 +1006,7 @@ class VentanaBasculaMain(QMainWindow):
             self.btn_llamar.setVisible(False)
             self.lbl_kpi_unidades.setVisible(False)
             self.lbl_kpi_toneladas.setVisible(False)
+            self.frame_capacidad_lineas.setVisible(False)
             self.frame_top.setFixedHeight(155)
             self.btn_ir_dashboard.setText("🚛 VOLVER A TABLERO")
             self.cargar_df_249()
@@ -960,39 +1017,37 @@ class VentanaBasculaMain(QMainWindow):
         self.btn_llamar.setVisible(True)
         self.lbl_kpi_unidades.setVisible(True)
         self.lbl_kpi_toneladas.setVisible(True)
+        self.frame_capacidad_lineas.setVisible(True)
         self.frame_top.setFixedHeight(280)
         self.btn_ir_dashboard.setText("📊 DASHBOARD SALIDAS")
+        self._actualizar_panel_capacidad_lineas(filtro_gpo, filtro_ce)
         
         # Filtrado
         items_filtrados = []
         suma_toneladas = 0.0
         
         for x_remision in self.datos_totales:
-            estatus = x_remision.get("estatus", "")
-            
-            # 1. Filtro de Estatus (Solo ESPERA o LLAMADO)
-            if estatus not in ["ESPERA", "LLAMADO"]:
-                continue
-
-            # 2. Filtro por Grupo de Material (envasado o granel)
+            # 1. Filtro por Grupo de material (envasado o granel)
             if str(x_remision.get("gpo_material", "")).lower() != str(filtro_gpo).lower():
                 continue
 
-            # 3. Filtro por Centro de Expedición (Solo aplica si la vista tiene un "ce" específico como Tula)
+            # 2. Filtro por Centro de Expedición (Solo aplica si la vista tiene un "ce" específico como Tula)
             if filtro_ce != "" and x_remision.get("c_exp") != filtro_ce:
                 continue
 
-            # 4. Filtro por Familia de Material (Solo si la vista lo requiere)
+            # 3. Filtro por Familia de material (Solo si la vista lo requiere)
             if filtro_mat != "" and filtro_mat not in str(x_remision.get("material", "")): 
                 continue
 
             # Si pasa todos los filtros, lo agregamos a la tabla
             items_filtrados.append(x_remision)
-            if estatus in ["ESPERA", "LLAMADO"]:
-                suma_toneladas += float(x_remision.get("toneladas", 0.0))
+            suma_toneladas += float(x_remision.get("toneladas", 0.0))
 
         # Actualizar KPIs
-        pendientes = len([x for x in items_filtrados if x.get("estatus") == "ESPERA"])
+        pendientes = len([
+            x for x in items_filtrados
+            if x.get("estatus") == CATALOGO_ESTATUS_BASCULA["estatus_1"]["texto"]
+        ])
         self.lbl_kpi_unidades.setText(f"Unidades Pendientes: {pendientes}")
         self.lbl_kpi_toneladas.setText(f"Toneladas Pendientes: {suma_toneladas:.2f} TON")
 
@@ -1002,11 +1057,102 @@ class VentanaBasculaMain(QMainWindow):
         # Poblar Tabla
         self._llenar_tabla(items_filtrados)
 
+    def _calcular_ocupacion_linea(self, cfg_linea: dict) -> dict:
+        """
+        Calcula ocupación física actual en planta para una línea de carga,
+        agrupando por transporte único (para no duplicar Fulles con 2 remisiones).
+        en_planta comprende unidades que ya pasaron a estatus_2 ('02 ingresando...')
+        con frontera en estatus_4 ('04 cargado', donde ya finalizó la carga).
+        """
+        gpo_l = str(cfg_linea.get("gpo", "")).strip().lower()
+        ce_l = str(cfg_linea.get("ce", "")).strip().upper()
+        cap_total = int(cfg_linea.get("capacidad_total", 0))
+        max_fulles = int(cfg_linea.get("max_fulles", 0))
+        peso_full = int(cfg_linea.get("peso_full", 1))
+
+        estatus_en_planta = {
+            CATALOGO_ESTATUS_BASCULA["estatus_2"]["texto"].strip().lower(),
+            CATALOGO_ESTATUS_BASCULA["estatus_3"]["texto"].strip().lower(),
+        }
+
+        unidades_unicas = {}
+        for x_rem in self.datos_totales:
+            if str(x_rem.get("gpo_material", "")).strip().lower() != gpo_l:
+                continue
+            if ce_l and str(x_rem.get("c_exp", "")).strip().upper() != ce_l:
+                continue
+
+            est_actual = str(x_rem.get("estatus", "")).strip().lower()
+            if est_actual not in estatus_en_planta:
+                continue
+
+            key_t = str(x_rem.get("transporte", "")).strip()
+            if not key_t or key_t in ("---", "PENDIENTE", "None"):
+                key_t = f"REM_{str(x_rem.get('remision', '')).strip()}"
+
+            if key_t not in unidades_unicas:
+                unidades_unicas[key_t] = obtener_tipo_unidad(x_rem.get("clase_expedicion", ""))
+
+        en_planta = len(unidades_unicas)
+        fulles = sum(1 for t in unidades_unicas.values() if t == "full")
+        sencillos = en_planta - fulles
+        espacios_usados = (fulles * peso_full) + sencillos
+        disponibles = max(0, cap_total - en_planta)
+
+        return {
+            "capacidad_total": cap_total,
+            "max_fulles": max_fulles,
+            "peso_full": peso_full,
+            "en_planta": en_planta,
+            "fulles": fulles,
+            "espacios_usados": espacios_usados,
+            "disponibles": disponibles,
+        }
+
+    def _actualizar_panel_capacidad_lineas(self, filtro_gpo: str, filtro_ce: str):
+        """Renderiza 3 labels por cada punto de carga activo de la vista actual."""
+        while self.layout_capacidad_lineas.count():
+            item = self.layout_capacidad_lineas.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        lineas = obtener_lineas_planta(self.nombre_planta, gpo=filtro_gpo, ce=filtro_ce)
+        if not lineas:
+            self.frame_capacidad_lineas.setVisible(False)
+            return
+
+        for config_linea in lineas:
+            ocupacion_linea = self._calcular_ocupacion_linea(config_linea)
+            grupo_box = QGroupBox(config_linea.get("nombre", "Línea"))
+            grupo_box.setStyleSheet(
+                "QGroupBox { font-weight: bold; font-size: 12px; color: #0F172A; "
+                "border: 1px solid #CBD5E1; border-radius: 6px; margin-top: 8px; padding-top: 6px; background: white; } "
+                "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+            )
+            lay_box = QHBoxLayout(grupo_box)
+            lay_box.setContentsMargins(10, 4, 10, 4)
+            lay_box.setSpacing(14)
+
+            lbl_cap = QLabel(f"Capacidad Máxima: {ocupacion_linea['capacidad_total']}")
+            lbl_cap.setStyleSheet("border: none; font-size: 15px; font-weight: bold; color: #334155;")
+
+            lbl_planta = QLabel(f"Unidades en Planta: {ocupacion_linea['en_planta']}")
+            lbl_planta.setStyleSheet("border: none; font-size: 15px; font-weight: bold; color: #0F766E;")
+
+            color_disp = "#15803D" if ocupacion_linea["disponibles"] > 0 else "#B91C1C"
+            lbl_disp = QLabel(f"Faltan por Ingresar: {ocupacion_linea['disponibles']}")
+            lbl_disp.setStyleSheet(f"border: none; font-size: 15px; font-weight: bold; color: {color_disp};")
+
+            lay_box.addWidget(lbl_cap)
+            lay_box.addWidget(lbl_planta)
+            lay_box.addWidget(lbl_disp)
+            self.layout_capacidad_lineas.addWidget(grupo_box)
+
     def _llenar_tabla(self, lista_camiones):
         self.tabla.setRowCount(0)
         
         # 1. Asegurar que las columnas del encabezado sean las nuevas (puedes poner esto en tu __init__ también)
-        #columnas = ["Sel", "Estatus", "Turno", "Remision", "Transporte", "Material", "Ton", "Mod", "Placas", "Operador", "Destinatario", "Espera"]
         #self.tabla.setColumnCount(len(columnas))
         #self.tabla.setHorizontalHeaderLabels(columnas)
         
@@ -1018,7 +1164,7 @@ class VentanaBasculaMain(QMainWindow):
             chk_widget = QWidget()
             chk = QCheckBox()
             chk.setStyleSheet("margin-left: 10px;")
-            if datos["estatus"] == "ESPERA":
+            if datos["estatus"] == CATALOGO_ESTATUS_BASCULA["estatus_1"]["texto"]:
                 chk.setChecked(False)
             else:
                 chk.setDisabled(True) 
@@ -1050,39 +1196,63 @@ class VentanaBasculaMain(QMainWindow):
                 minutos = (delta.seconds % 3600) // 60
                 
                 if dias > 0:
-                    tiempo_espera = f"{dias}d {horas}h"
+                    tiempo_estadia = f"{dias}d {horas}h"
                 else:
-                    tiempo_espera = f"{horas}h {minutos}m"
+                    tiempo_estadia = f"{horas}h {minutos}m"
             except Exception:
-                tiempo_espera = "---" # Por si SAP manda un formato raro o vacío
+                tiempo_estadia = "---" # Por si SAP manda un formato raro o vacío
 
             modalidad = str(datos.get("modalidad", ""))[:3].upper()
 
-            # 2. Ensamblar la fila en el orden EXACTO de tus columnas (Índices 1 al 10)
+            # 2. Ensamblar la fila en el orden EXACTO de tus columnas (Índices 1 al 12)
             vals = [
-                datos["estatus"],           # Columna 1: Estatus
-                datos["turno"],             # Columna 2: Turno
-                datos["remision"],          # Columna 3: Remision
-                datos["transporte"],        # Columna 4: Transporte
-                datos["material"],          # Columna 5: Material
-                f"{datos['toneladas']:.2f}",# Columna 6: Ton
-                modalidad,                  # Columna 7: Modalidad
-                datos["placas"],            # Columna 8: Placas
-                datos["operador"],          # Columna 9: Operador
-                datos["destinatario_nom"],  # Columna 10: Destinatario
-                tiempo_espera               # Columna 11: Espera
+                datos["estatus"],                    # Columna 1: estatus
+                datos["turno"],                      # Columna 2: turno
+                datos["remision"],                   # Columna 3: remision
+                datos["transporte"],                 # Columna 4: transporte
+                datos["material"],                   # Columna 5: material
+                f"{datos['toneladas']:.2f}",         # Columna 6: ton
+                modalidad,                           # Columna 7: modalidad
+                datos.get("clase_expedicion", ""),   # Columna 9: tipo unidad
+                datos["placas"],                     # Columna 8: placas
+                datos["operador"],                   # Columna 10: operador
+                datos["destinatario_nom"],           # Columna 11: destinatario
+                tiempo_estadia                       # Columna 12: estadia
             ]
+
+            idx_est = self.columnas_tabla.index("estatus")
+            idx_mod = self.columnas_tabla.index("mod")
+            idx_mat = self.columnas_tabla.index("material")
+
+            est_llamado_cfg = CATALOGO_ESTATUS_BASCULA["estatus_1_2"]
+            est_llamado_txt = est_llamado_cfg["texto"].strip().lower()
+            es_fila_llamado = (
+                est_llamado_txt in str(datos["estatus"]).lower()
+                or "llamado" in str(datos["estatus"]).lower()
+            )
 
             for col_idx, valor in enumerate(vals, start=1):
                 item = QTableWidgetItem(str(valor))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 
-                if datos["estatus"] == "LLAMADO":
-                    item.setBackground(QColor("#D5F5E3")) 
-                    item.setForeground(QColor("#145A32"))
+                if es_fila_llamado:
+                    item.setBackground(QColor(est_llamado_cfg["bg"]))
+                    item.setForeground(QColor(est_llamado_cfg["fg"]))
+
+                # --- FORMATO CONDICIONAL PARA ESTATUS ---
+                elif col_idx == idx_est:
+                    val_low = str(valor).strip().lower()
+                    for data_est in CATALOGO_ESTATUS_BASCULA.values():
+                        txt_est = str(data_est.get("texto", "")).strip().lower()
+                        if txt_est and (val_low == txt_est or val_low.startswith(txt_est)):
+                            if "bg" in data_est:
+                                item.setBackground(QColor(data_est["bg"]))
+                            if "fg" in data_est:
+                                item.setForeground(QColor(data_est["fg"]))
+                            break
 
                 # --- FORMATO CONDICIONAL PARA MODALIDAD ---
-                elif col_idx == 7: 
+                elif col_idx == idx_mod: 
                     if valor == "ENT":
                         item.setBackground(QColor("#FFCBCE")) # Rosa/Rojo de tu VBA
                         item.setForeground(QColor("#943126")) # Texto rojo oscuro
@@ -1092,9 +1262,7 @@ class VentanaBasculaMain(QMainWindow):
                     elif valor == "RET":
                         item.setBackground(QColor("#FFEB9C")) # Amarillo de tu VBA
                         item.setForeground(QColor("#7D6608")) # Texto café/dorado
-                elif col_idx == 5: # <-- Asegúrate de que 5 sea tu columna de Material
-                    from catalogos import CATALOGO_MATERIALES
-                    
+                elif col_idx == idx_mat:
                     # Buscamos qué material del catálogo está contenido en el texto de la celda
                     for data in CATALOGO_MATERIALES.values():
                         if str(data["desc_nom_corto"]).upper() in str(valor).upper():
@@ -1131,7 +1299,7 @@ class VentanaBasculaMain(QMainWindow):
                 QMessageBox.warning(self, "Atención", "Seleccione al menos un operador de la lista para llamar.")
                 return
 
-            # 2. Agrupar remisiones por Número de Transporte (Evita entrar 2 veces a VT02N en un Full)
+            # 2. Agrupar remisiones por Número de transporte (Evita entrar 2 veces a VT02N en un Full)
             # Estructura: { "4800123456": ["7530000001", "7530000002"] }
             mapa_transportes = {}
             sin_transporte = []
@@ -1149,25 +1317,79 @@ class VentanaBasculaMain(QMainWindow):
 
             if sin_transporte:
                 QMessageBox.warning(
-                    self, "Transporte Faltante",
+                    self, "transporte Faltante",
                     f"Las siguientes remisiones aún no tienen número de transporte válido:\n{', '.join(sin_transporte)}"
                 )
                 if not mapa_transportes:
                     return
 
-            # 3. Confirmación del usuario en Báscula
-            confirm = QMessageBox.question(
-                self, "Confirmar Llamado",
-                f"¿Desea llamar a {len(mapa_transportes)} unidad(es) ({len(remisiones_seleccionadas)} remisiones) a Báscula?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            
-            if confirm != QMessageBox.Yes:
-                return
+            # 3. Validación preventiva de capacidad por línea de carga y tipo de unidad
+            sel_por_clave = {}
+            for num_trans, lista_rems in mapa_transportes.items():
+                rem_ref = next(
+                    (
+                        x for x in self.datos_totales
+                        if str(x.get("remision", "")).strip() in lista_rems
+                        or str(x.get("transporte", "")).strip() == num_trans
+                    ),
+                    None,
+                )
+                if not rem_ref:
+                    continue
+                gpo_r = str(rem_ref.get("gpo_material", "")).strip().lower()
+                ce_r = str(rem_ref.get("c_exp", "")).strip().upper()
+                tipo_u = obtener_tipo_unidad(rem_ref.get("clase_expedicion", ""))
+                clave = (gpo_r, ce_r)
+                if clave not in sel_por_clave:
+                    sel_por_clave[clave] = {"unidades": 0, "fulles": 0}
+                sel_por_clave[clave]["unidades"] += 1
+                if tipo_u == "full":
+                    sel_por_clave[clave]["fulles"] += 1
+
+            lineas_excedidas = []
+            for (gpo_r, ce_r), conteo_sel in sel_por_clave.items():
+                for config_linea in obtener_lineas_planta(self.nombre_planta, gpo=gpo_r, ce=ce_r):
+                    ocupacion_linea = self._calcular_ocupacion_linea(config_linea)
+                    tot_un = ocupacion_linea["en_planta"] + conteo_sel["unidades"]
+                    tot_fulles = ocupacion_linea["fulles"] + conteo_sel["fulles"]
+                    sel_senc = conteo_sel["unidades"] - conteo_sel["fulles"]
+                    tot_espacios = (
+                        ocupacion_linea["espacios_usados"]
+                        + (conteo_sel["fulles"] * ocupacion_linea["peso_full"])
+                        + sel_senc
+                    )
+
+                    if (
+                        tot_un > ocupacion_linea["capacidad_total"]
+                        or tot_fulles > ocupacion_linea["max_fulles"]
+                        or tot_espacios > ocupacion_linea["capacidad_total"]
+                    ):
+                        lineas_excedidas.append(config_linea.get("nombre", "Línea"))
+
+            if lineas_excedidas:
+                nombres_str = ", ".join(dict.fromkeys(lineas_excedidas))
+                confirm_cap = QMessageBox.warning(
+                    self,
+                    "Capacidad Máxima Superada",
+                    f"Vas a superar la capacidad de unidades máximas dentro de planta en {nombres_str}. ¿Deseas continuar?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if confirm_cap != QMessageBox.Yes:
+                    return
+            else:
+                # Confirmación normal del usuario en Báscula
+                confirm = QMessageBox.question(
+                    self, "Confirmar Llamado",
+                    f"¿Desea llamar a {len(mapa_transportes)} unidad(es) ({len(remisiones_seleccionadas)} remisiones) a Báscula?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if confirm != QMessageBox.Yes:
+                    return
 
             # 4. Armar el diccionario con la estampa de tiempo al momento
             ahora_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-            texto_llamado = f"02 llamado {ahora_str}"
+            texto_llamado = f"{CATALOGO_ESTATUS_BASCULA['estatus_1_2']['texto']} {ahora_str}"
             
             data_cambios = {
                 "TEXT3": texto_llamado
@@ -1180,7 +1402,7 @@ class VentanaBasculaMain(QMainWindow):
             # Importamos SAPError por si hay bloqueo en SAP
             from manager_sap import SAPError
 
-            with self.sap_manager.tunel(f"Báscula: Llamar {len(mapa_transportes)} Transporte(s) en VT02N"):
+            with self.sap_manager.tunel(f"Báscula: Llamar {len(mapa_transportes)} transporte(s) en VT02N"):
                 for num_transporte, lista_rems in mapa_transportes.items():
                     try:
                         QApplication.processEvents() # Mantiene viva la ventana de Qt5 mientras trabaja SAP
@@ -1191,14 +1413,14 @@ class VentanaBasculaMain(QMainWindow):
                             # Actualizamos en memoria todas las remisiones asociadas a este transporte
                             for x_remision in self.datos_totales:
                                 if str(x_remision.get("transporte", "")).strip() == num_transporte:
-                                    x_remision["estatus"] = "LLAMADO"
+                                    x_remision["estatus"] = texto_llamado
                                     
                     except SAPError as e_sap:
                         print(f"❌ Error SAP al llamar transporte {num_transporte}: {e_sap}")
                         errores_sap.append(f"• {e_sap}")
                     except Exception as e_gen:
                         print(f"❌ Error inesperado con transporte {num_transporte}: {e_gen}")
-                        errores_sap.append(f"Transporte {num_transporte}: {e_gen}")
+                        errores_sap.append(f"transporte {num_transporte}: {e_gen}")
 
             # 6. Refrescar interfaz y dar retroalimentación al usuario
             self.actualizar_interfaz_vista()
@@ -1363,16 +1585,17 @@ class VentanaBasculaMain(QMainWindow):
                 ruta_base_drive=self.ruta_base_drive,
             )
 
-            # Conservar el estatus visual "LLAMADO" para remisiones ya llamadas en la sesión
-            transportes_llamados = {
-                str(x_remision.get("remision", "")).strip()
+            # Conservar el estatus visual de llamado para remisiones ya llamadas en la sesión
+            remisiones_llamadas = {
+                str(x_remision.get("remision", "")).strip(): x_remision.get("estatus", "")
                 for x_remision in self.datos_totales
-                if x_remision.get("estatus") == "LLAMADO"
+                if "llamado" in str(x_remision.get("estatus", "")).lower()
             }
 
             for nuevo_cam in nuevos_datos:
-                if str(nuevo_cam.get("remision", "")).strip() in transportes_llamados:
-                    nuevo_cam["estatus"] = "LLAMADO"
+                rem_k = str(nuevo_cam.get("remision", "")).strip()
+                if rem_k in remisiones_llamadas and nuevo_cam.get("estatus") == CATALOGO_ESTATUS_BASCULA["estatus_1"]["texto"]:
+                    nuevo_cam["estatus"] = remisiones_llamadas[rem_k]
 
             self.datos_totales = nuevos_datos
             self.cargar_df_249()
@@ -1400,7 +1623,7 @@ class VentanaBasculaMain(QMainWindow):
         nombre_centro_cat = str(info_planta_cat.get("nombre_centro", "")).strip().upper()
         cods_upper = [str(c).strip().upper() for c in (self.codigos_sap or []) if str(c).strip()]
 
-        turnos_nombres = ["1er Turno", "2do Turno", "3er Turno"]
+        turnos_nombres = ["1er turno", "2do turno", "3er turno"]
         resultado_base = {
             "semana_oferta": None,
             "oferta_planta": 0.0,
@@ -1492,7 +1715,7 @@ class VentanaBasculaMain(QMainWindow):
             e_ce = float(ton_series[(ce_vig_series == cod_ce) & (fam_series == "envasado")].sum())
             por_centro[cod_ce] = {"granel": g_ce, "envasado": e_ce}
 
-        # 5. Calcular Objetivos por Turno (oferta_planta / turnos_operativos)
+        # 5. Calcular Objetivos por turno (oferta_planta / turnos_operativos)
         div_turnos = float(max(1, turnos_operativos))
         obj_gra_turno = round(tot_granel / div_turnos, 2)
         obj_env_turno = round(tot_envasado / div_turnos, 2)
@@ -1541,9 +1764,9 @@ class VentanaBasculaMain(QMainWindow):
         """
         Calcula con condicionales todas las salidas de la fecha para la planta activa:
           - Cuánto de envasado y cuánto de granel (Total planta y por Centro de Expedición).
-          - Cuánto ha salido por Turno (1er, 2do y 3er Turno).
+          - Cuánto ha salido por turno (1er, 2do y 3er turno).
           - Cuánto ha salido por Modalidad (Entregado, Retirado, Autoflete) y Mix Entregado. 
-          - Cuánto ha salido por Material/Producto y cuánto queda Por Cargar (desde ZSDMX389).
+          - Cuánto ha salido por material/Producto y cuánto queda Por Cargar (desde ZSDMX389).
         """
         try:
             fecha_dt = datetime.strptime(fecha_str, "%Y-%m-%d")
@@ -1619,7 +1842,7 @@ class VentanaBasculaMain(QMainWindow):
                 }
 
         # ------------------------------------------------------------------
-        # 2. CONDICIONALES: SALIDAS POR TURNO (1er, 2do, 3er Turno)
+        # 2. CONDICIONALES: SALIDAS POR TURNO (1er, 2do, 3er turno)
         # ------------------------------------------------------------------
         por_turno = {}
         turno_series = (
@@ -1630,7 +1853,7 @@ class VentanaBasculaMain(QMainWindow):
 
         # Si hay registros del día que aún no tienen cruce de hora en VT16 ("SIN TURNO"),
         # turno en curso para que el total de turnos cuadre con las salidas reales
-        for nom_t, rango_hr in [("1er Turno", (0, 7)), ("2do Turno", (7, 15)), ("3er Turno", (15, 24))]:
+        for nom_t, rango_hr in [("1er turno", (0, 7)), ("2do turno", (7, 15)), ("3er turno", (15, 24))]:
             if not df.empty:
                 s_gra_t = float(ton_series[(turno_series == nom_t) & (fam_series == "granel")].sum())
                 s_env_t = float(ton_series[(turno_series == nom_t) & (fam_series == "envasado")].sum())
@@ -1686,7 +1909,8 @@ class VentanaBasculaMain(QMainWindow):
         por_cargar_por_prod = {}
 
         for cam in self.datos_totales:
-            if cam.get("estatus") not in ["ESPERA", "LLAMADO"]:
+            estatus_cam = str(cam.get("estatus", ""))
+            if estatus_cam != CATALOGO_ESTATUS_BASCULA["estatus_1"]["texto"] and "llamado" not in estatus_cam.lower():
                 continue
             ton_cam = float(cam.get("toneladas", 0.0))
             fch_p_str = str(cam.get("fch_planif", "")).strip()

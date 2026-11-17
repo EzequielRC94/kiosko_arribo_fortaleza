@@ -1035,7 +1035,8 @@ class AppWindow(QMainWindow):
                         operador=operador,
                         placas=placas,
                         clase_expedicion_f=clase_exp_final, 
-                        fecha_checklist= fch_checklist
+                        fecha_checklist= fch_checklist,
+                        turno= self.session_data.ticket_id
                     )
 
                     # Validar y guardar transporte real

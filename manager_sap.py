@@ -968,7 +968,8 @@ class SAPManager:
     @tunel_sap("VT01N: Crear Transporte")
     def crear_transporte(self, remisiones: list, centro_expedicion: str, 
                          modalidad: str, operador: str, placas: str, 
-                         clase_expedicion_f: str, fecha_checklist: str = "") -> str:
+                         clase_expedicion_f: str, fecha_checklist: str = "",
+                         turno: str = "") -> str:
         """
         Crea el número de transporte en la transacción VT01N.
         Retorna: El número de transporte creado (str).
@@ -1063,7 +1064,7 @@ class SAPManager:
 
         # 6. Llenar Datos de Cabecera (Función Auxiliar)
         # This function fills text fields
-        self._llenar_datos_transporte(session, modalidad, operador, placas, clase_expedicion_f)
+        self._llenar_datos_transporte(session, modalidad, operador, placas, clase_expedicion_f, turno)
 
         # 7. Validaciones Finales (Validar campos obligatorios antes de guardar)
         # --- Pestaña: Fechas (TABS_OV_DE) ---
@@ -1147,7 +1148,7 @@ class SAPManager:
         else:
              raise SAPError(f"Error al guardar transporte: {mensaje_final}")
 
-    def _llenar_datos_transporte(self, session, modalidad, operador, placas, clase_exp_f):
+    def _llenar_datos_transporte(self, session, modalidad, operador, placas, clase_exp_f, turno):
         """
         Llena los campos detallados en la cabecera del transporte (VT01N).
         """
@@ -1170,6 +1171,7 @@ class SAPManager:
         cerrar_popup_si_existe()
 
         session.findById("wnd[0]/usr/tabsHEADER_TABSTRIP2/tabpTABS_OV_AI/ssubG_HEADER_SUBSCREEN2:SAPMV56A:1030/ctxtVTTK-ADD03").text = modalidad
+        session.findById("wnd[0]/usr/tabsHEADER_TABSTRIP2/tabpTABS_OV_AI/ssubG_HEADER_SUBSCREEN2:SAPMV56A:1030/txtVTTK-TEXT1").text = turno
         session.findById("wnd[0]/usr/tabsHEADER_TABSTRIP2/tabpTABS_OV_AI/ssubG_HEADER_SUBSCREEN2:SAPMV56A:1030/txtVTTK-TEXT2").text = operador
         session.findById("wnd[0]/usr/tabsHEADER_TABSTRIP2/tabpTABS_OV_AI/ssubG_HEADER_SUBSCREEN2:SAPMV56A:1030/txtVTTK-TEXT3").text = "01 EN ESPERA"
         #print(f"Datos agregados a Datos Adic: {modalidad} {operador}")

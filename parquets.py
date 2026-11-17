@@ -22,6 +22,7 @@ CONFIG_389 = {
     "columnas_extra": [
         "material_familia",
         "material_nom_corto",
+        "aux_EG",
     ],
     "columnas_fijas": [
         "clase_expedicion",        # 1. Ex / Clase de expedición
@@ -60,7 +61,7 @@ CONFIG_389 = {
         "ruta_transporte",         # 34. Ruta transporte
         "nombre_ruta_transporte",  # 35. Nombre de ruta transporte
         "crea_transporte",         # 36. Creador transporte
-        "texto_adic_1",            # 37. Texto adic.1
+        "texto_adic_3",            # 37. Texto adic.3
         "estatus_transporte",      # 38. Estatus transporte
         "1_fch_planificacion",     # 39. Fecha planificación transporte real
         "1_hr_planificacion",      # 40. Hora planificación transporte real
@@ -70,6 +71,9 @@ CONFIG_389 = {
         "3_hr_inicio_carga",       # 44. Hora inicio de carga
         "4_fch_fin_carga",         # 45. Fecha fin de carga
         "4_hr_fin_carga",          # 46. Hora fin de carga
+        "texto_adic_1",            # 47. Texto adic.1
+        "texto_adic_2",             # 48. Texto adic.2 (Nombre del chofer / operador)
+        "texto_adic_4",            # 49. Texto adic.4
     ],
     # Respaldo para archivos previos de 20 columnas del layout anterior de ZSDMX389
     "columnas_fijas_alt": {
@@ -82,7 +86,9 @@ CONFIG_389 = {
             "1_fch_planificacion",
         ]
     },
-    "cols_int": [],
+    "cols_int": [
+        "aux_EG"
+    ],
     "cols_float": [
         "ton"
     ],
@@ -455,6 +461,14 @@ def _leer_archivo_sap_flexible(archivo: str, config: dict = None) -> pd.DataFram
     return df_temp
 
 
+def _mover_columna_al_final(df: pd.DataFrame, columna: str = "_archivo_origen") -> pd.DataFrame:
+    """Garantiza que la columna indicada (por defecto '_archivo_origen') quede al final del DataFrame."""
+    if df is not None and columna in df.columns:
+        cols_ordenadas = [c for c in df.columns if c != columna] + [columna]
+        return df[cols_ordenadas]
+    return df
+
+
 def _normalizar_serie_transporte(serie: pd.Series) -> pd.Series:
     """
     Estandariza los números de transporte para cruces fiables entre tablas:
@@ -556,6 +570,7 @@ def relacionar_fbl4n_con_vt16(df_fbl4n: pd.DataFrame = None) -> pd.DataFrame | d
 
     if guardar_en_disco:
         print(f"  -> Guardando 'fbl4n.parquet' con fecha fin de carga actualizada...")
+        df_fbl4n = _mover_columna_al_final(df_fbl4n, "_archivo_origen")
         df_fbl4n.to_parquet(archivo_fbl4n, engine="fastparquet", index=False)
         return {
             "estatus": True,
@@ -713,6 +728,7 @@ def enriquecer_249(df_249: pd.DataFrame = None) -> pd.DataFrame | dict:
             df_249["turno_salida"] = "sin turno"
 
     if guardar_en_disco:
+        df_249 = _mover_columna_al_final(df_249, "_archivo_origen")
         df_249.to_parquet(archivo_249, engine="fastparquet", index=False)
         return {
             "estatus": True,
@@ -938,6 +954,7 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
         # ==========================================
         # 5. GUARDADO FINAL Y ACTUALIZACIÓN DE MEMORIA
         # ==========================================
+        df_final = _mover_columna_al_final(df_final, "_archivo_origen")
         print(f"💾 Escribiendo Parquet maestro en: {archivo_parquet}...")
         df_final.to_parquet(archivo_parquet, engine="fastparquet", index=False)
 
@@ -958,11 +975,17 @@ def actualizar_parquet_transaccion(transaccion: str, config: dict = None) -> dic
 
 def enriquecer_389(df_389: pd.DataFrame) -> pd.DataFrame:
     """
-    Enriquece el DataFrame de ZSDMX389 con CATALOGO_MATERIALES:
+    Enriquece el DataFrame de ZSDMX389 con CATALOGO_MATERIALES y calcula 'aux_EG':
     1. Genera 'material_familia': cruza 'material_cod' con CATALOGO_MATERIALES['grupo']
        y usa 'gpo_mat' (F06 = envasado, F07 = granel) como respaldo.
     2. Genera 'material_nom_corto': cruza 'material_cod' con CATALOGO_MATERIALES['desc_nom_corto']
        y usa 'mat_descripcion' como respaldo.
+    3. Genera 'aux_EG' (Auxiliar Estatus Global, entero 0-4) a partir de las fechas:
+       - 1_fch_planificacion (sin datos) -> 0
+       - 1_fch_planificacion (con datos) -> 1
+       - 2_fch_bascula_entrada (con datos) -> 2
+       - 3_fch_inicio_carga (con datos) -> 3
+       - 4_fch_fin_carga (con datos) -> 4
     """
     if df_389 is None or df_389.empty:
         return df_389
@@ -1000,6 +1023,23 @@ def enriquecer_389(df_389: pd.DataFrame) -> pd.DataFrame:
         else pd.Series("", index=df_389.index)
     )
     df_389["material_nom_corto"] = nom_cat.where(nom_cat.notna() & (nom_cat != ""), nom_respaldo)
+
+    # Auxiliar Estatus Global (aux_EG): 0=Sin planificar, 1=Planificado, 2=Báscula, 3=Inicio Carga, 4=Fin Carga
+    def _tiene_fecha(col_nombre: str) -> pd.Series:
+        if col_nombre not in df_389.columns:
+            return pd.Series(False, index=df_389.index)
+        s = df_389[col_nombre].fillna("").astype(str).str.strip()
+        invalidos = s.str.lower().isin(["", "nan", "none", "null", "nat", "00.00.0000", "0000-00-00", "00/00/0000"])
+        parsed = pd.to_datetime(s.where(~invalidos, None), format="mixed", dayfirst=True, errors="coerce")
+        return parsed.notna()
+
+    aux_eg = pd.Series(0, index=df_389.index, dtype="Int64")
+    aux_eg = aux_eg.mask(_tiene_fecha("1_fch_planificacion"), 1)
+    aux_eg = aux_eg.mask(_tiene_fecha("2_fch_bascula_entrada"), 2)
+    aux_eg = aux_eg.mask(_tiene_fecha("3_fch_inicio_carga"), 3)
+    aux_eg = aux_eg.mask(_tiene_fecha("4_fch_fin_carga"), 4)
+    df_389["aux_EG"] = aux_eg
+
     return df_389
 
 
@@ -1179,6 +1219,7 @@ def _actualizar_parquet_389_subtipo(
         df_temp = df_temp[cols_finales]
 
     # 7. Guardar Parquet de fotografía actual y actualizar memoria
+    df_temp = _mover_columna_al_final(df_temp, "_archivo_origen")
     df_temp.to_parquet(archivo_parquet, engine="fastparquet", index=False)
     _guardar_memoria_modificacion(archivo_log, {nom_base: mtime_str})
 
@@ -1259,7 +1300,7 @@ def obtener_df_389(
     if df.empty:
         return df
 
-    if not {"material_familia", "material_nom_corto"}.issubset(set(df.columns)):
+    if not {"material_familia", "material_nom_corto", "aux_EG"}.issubset(set(df.columns)):
         df = enriquecer_389(df)
 
     df["ton"] = pd.to_numeric(df.get("ton", 0.0), errors="coerce").fillna(0.0)
@@ -1283,7 +1324,11 @@ def obtener_tablero_389_en_proceso(
     (homologando la lógica que antes vivía en leer_zsdmx389_local de manager_arribos.py).
     """
     import re
-    from catalogos import CATALOGO_MATERIALES
+    from catalogos import (
+        CATALOGO_MATERIALES,
+        CATALOGO_ESTATUS_BASCULA,
+        MAPA_AUX_EG_ESTATUS,
+    )
 
     # Sincronizar si el archivo CSV en_proceso cambió en disco (ej. nuevo arribo local)
     _actualizar_parquet_389_subtipo(tipo_archivo="en_proceso", ruta_base_drive=ruta_base_drive)
@@ -1354,15 +1399,32 @@ def obtener_tablero_389_en_proceso(
 
         # Determinar estatus operativo inicial desde 389_en_proceso.parquet
         texto_adic_1 = _val_str(row_cab.get("texto_adic_1", ""))
-        txt_cabecera = _val_str(row_cab.get("txt_cabecera", ""))
+        texto_adic_3 = _val_str(row_cab.get("texto_adic_3", ""))
+        clase_expedicion = _val_str(row_cab.get("clase_expedicion", ""))
         estatus_transp = _val_str(row_cab.get("estatus_transporte", ""))
         fch_basc = _val_str(row_cab.get("2_fch_bascula_entrada", ""))
         fch_ini_carga = _val_str(row_cab.get("3_fch_inicio_carga", ""))
         fch_fin_carga = _val_str(row_cab.get("4_fch_fin_carga", ""))
 
-        estatus_op = "ESPERA"
-        if "llamado" in texto_adic_1.lower() or "llamado" in txt_cabecera.lower():
-            estatus_op = "LLAMADO"
+        aux_eg_raw = row_cab.get("aux_EG", 0)
+        try:
+            aux_eg_int = 0 if aux_eg_raw is None or pd.isna(aux_eg_raw) else int(aux_eg_raw)
+        except (TypeError, ValueError):
+            aux_eg_int = 0
+
+        texto_llamado_base = CATALOGO_ESTATUS_BASCULA["estatus_1_2"]["texto"].strip().lower()
+        es_llamado = bool(texto_adic_3) and (
+            texto_llamado_base in texto_adic_3.lower() or "llamado" in texto_adic_3.lower()
+        )
+
+        # Si texto_adic_3 es vacío/"X", o si ya avanzó a ingreso/carga (aux_EG >= 2) tras ser llamado,
+        # calculamos el estatus con aux_EG para no quedar pegado en "01 llamado".
+        if not texto_adic_3 or texto_adic_3.upper() == "X" or (es_llamado and aux_eg_int >= 2):
+            estatus_op = MAPA_AUX_EG_ESTATUS.get(
+                aux_eg_int, CATALOGO_ESTATUS_BASCULA["estatus_1"]["texto"]
+            )
+        else:
+            estatus_op = texto_adic_3
 
         lista_tablero.append({
             "remision": _val_str(entrega),
@@ -1373,6 +1435,7 @@ def obtener_tablero_389_en_proceso(
             "gpo_material": x_gpo_material,
             "toneladas": peso_total,
             "placas": placas_str,
+            "clase_expedicion": clase_expedicion,
             "operador": limpiar_operador(operador_crudo),
             "transporte": transporte_str,
             "fch_planif": fch_planif,
@@ -1384,7 +1447,7 @@ def obtener_tablero_389_en_proceso(
             "4_fch_fin_carga": fch_fin_carga,
             "4_hr_fin_carga": _val_str(row_cab.get("4_hr_fin_carga", "")),
             "estatus": estatus_op,
-            "turno": "PENDIENTE",
+            "turno": texto_adic_1,
         })
 
     return lista_tablero

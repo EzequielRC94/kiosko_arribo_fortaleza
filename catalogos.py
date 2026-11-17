@@ -23,7 +23,45 @@ CATALOGO_PLANTAS = {
             "dias_operativos": [1, 2, 3, 4, 5, 6],  # Lunes(1) a Sábado(6)
         },
         "pct_retirado": 0.65,
-        "activo": True
+        "activo": True,
+        "capacidades_lineas": [
+            {
+                "id_linea": "TULA_GRA_L1",
+                "nombre": "Granel Línea 1 (MX47)",
+                "gpo": "granel",
+                "ce": "MX47",
+                "capacidad_total": 3,
+                "max_fulles": 1,
+                "peso_full": 2,
+            },
+            {
+                "id_linea": "TULA_GRA_L2",
+                "nombre": "Granel Línea 2 (MX57)",
+                "gpo": "granel",
+                "ce": "MX57",
+                "capacidad_total": 6,
+                "max_fulles": 2,
+                "peso_full": 2,
+            },
+            {
+                "id_linea": "TULA_ENV_L1",
+                "nombre": "Envasado Línea 1 (MX47)",
+                "gpo": "envasado",
+                "ce": "MX47",
+                "capacidad_total": 4,
+                "max_fulles": 3,
+                "peso_full": 1,
+            },
+            {
+                "id_linea": "TULA_ENV_L2",
+                "nombre": "Envasado Línea 2 (MX57)",
+                "gpo": "envasado",
+                "ce": "MX57",
+                "capacidad_total": 4,
+                "max_fulles": 3,
+                "peso_full": 1,
+            },
+        ],
     },
     "Planta Palmar": {
         "nombre_centro": "Palmar",
@@ -40,7 +78,27 @@ CATALOGO_PLANTAS = {
             "dias_operativos": [1, 2, 3, 4, 5, 6],  # Lunes(1) a Sábado(6)
         },
         "pct_retirado": 0.60,
-        "activo": True
+        "activo": True,
+        "capacidades_lineas": [
+            {
+                "id_linea": "PALMAR_GRA",
+                "nombre": "Granel",
+                "gpo": "granel",
+                "ce": "MX16",
+                "capacidad_total": 6,
+                "max_fulles": 3,
+                "peso_full": 2,
+            },
+            {
+                "id_linea": "PALMAR_ENV",
+                "nombre": "Envasado (2 naves + patio)",
+                "gpo": "envasado",
+                "ce": "MX16",
+                "capacidad_total": 6,
+                "max_fulles": 4,
+                "peso_full": 1,
+            },
+        ],
     },
     "Planta Progreso": {
         "nombre_centro": "Progreso",
@@ -57,7 +115,27 @@ CATALOGO_PLANTAS = {
             "dias_operativos": [1, 2, 3, 4, 5, 6],  # Lunes(1) a Sábado(6)
         },
         "pct_retirado": 0.50,
-        "activo": True
+        "activo": True,
+        "capacidades_lineas": [
+            {
+                "id_linea": "PROGRESO_GRA",
+                "nombre": "Granel",
+                "gpo": "granel",
+                "ce": "MX76",
+                "capacidad_total": 6,
+                "max_fulles": 3,
+                "peso_full": 2,
+            },
+            {
+                "id_linea": "PROGRESO_ENV",
+                "nombre": "Envasado",
+                "gpo": "envasado",
+                "ce": "MX76",
+                "capacidad_total": 4,
+                "max_fulles": 2,
+                "peso_full": 2,
+            },
+        ],
     },
     "Planta Vito": {
         "nombre_centro": "Vito",
@@ -74,7 +152,36 @@ CATALOGO_PLANTAS = {
             "dias_operativos": [1, 2, 3, 4, 5, 6],  # Lunes(1) a Sábado(6)
         },
         "pct_retirado": 0.33,
-        "activo": True
+        "activo": True,
+        "capacidades_lineas": [
+            {
+                "id_linea": "VITO_GRA_L1",
+                "nombre": "Granel Línea 1",
+                "gpo": "granel",
+                "ce": "MX46",
+                "capacidad_total": 2,
+                "max_fulles": 1,
+                "peso_full": 2,
+            },
+            {
+                "id_linea": "VITO_GRA_L2",
+                "nombre": "Granel Línea 2",
+                "gpo": "granel",
+                "ce": "MX46",
+                "capacidad_total": 1,
+                "max_fulles": 0,
+                "peso_full": 2,
+            },
+            {
+                "id_linea": "VITO_ENV",
+                "nombre": "Envasado",
+                "gpo": "envasado",
+                "ce": "MX46",
+                "capacidad_total": 2,
+                "max_fulles": 1,
+                "peso_full": 2,
+            },
+        ],
     },
     "CEDIS GDL": {
         "nombre_centro": "Gdl",
@@ -91,7 +198,27 @@ CATALOGO_PLANTAS = {
             "dias_operativos": [1, 2, 3, 4, 5, 6],  # Lunes(1) a Sábado(6)
         },
         "pct_retirado": 0.50,
-        "activo": True
+        "activo": True,
+        "capacidades_lineas": [
+            {
+                "id_linea": "PROGRESO_GRA",
+                "nombre": "Granel",
+                "gpo": "granel",
+                "ce": "MX76",
+                "capacidad_total": 6,
+                "max_fulles": 3,
+                "peso_full": 2,
+            },
+            {
+                "id_linea": "PROGRESO_ENV",
+                "nombre": "Envasado",
+                "gpo": "envasado",
+                "ce": "MX76",
+                "capacidad_total": 4,
+                "max_fulles": 2,
+                "peso_full": 2,
+            },
+        ],
     },
 
     # --- CENTROS NO ACTIVOS / OTROS CENTROS DE EXPEDICIÓN ---
@@ -235,6 +362,65 @@ USUARIOS_AUTORIZADOS_ARRIBO = {
     "aramirezc":  "Alberto Ezequiel Ramirez Contreras",
     "isantiagom": "Isidro Santiago Mendoza",
     "mcoronadon": "Mario Arturo Coronado Neville"
+}
+
+# ==============================================================================
+# CATÁLOGO DE ESTATUS OPERATIVOS DE BÁSCULA
+# ==============================================================================
+CATALOGO_ESTATUS_BASCULA = {
+    "estatus_1": {
+        "texto": "01 en espera",
+        "bg": "#E8F5E9",
+        "fg": "#1B5E20",
+    },
+
+    "estatus_1_2": {
+        "texto": "01 llamado",
+        "bg": "#DAF8DD",
+        "fg": "#1B5E20",
+        },
+
+    "estatus_2": {
+        "texto": "02 ingresando...",
+        "bg": "#C8EBC8",
+        "fg": "#000000",
+    },
+    "estatus_3": {
+        "texto": "03 cargando...",
+        "bg": "#81C784",
+        "fg": "#000000",
+    },
+    "estatus_4": {
+        "texto": "04 cargado",
+        "bg": "#2E7D32",
+        "fg": "#FFFFFF",
+    },
+    "estatus_5": {
+        "texto": "05 despachado",
+        "bg": "#1B5E20",
+        "fg": "#FFFFFF",
+    },
+}
+
+MAPA_AUX_EG_ESTATUS = {
+    0: CATALOGO_ESTATUS_BASCULA["estatus_1"]["texto"],
+    1: CATALOGO_ESTATUS_BASCULA["estatus_1"]["texto"],
+    2: CATALOGO_ESTATUS_BASCULA["estatus_2"]["texto"],
+    3: CATALOGO_ESTATUS_BASCULA["estatus_3"]["texto"],
+    4: CATALOGO_ESTATUS_BASCULA["estatus_4"]["texto"],
+    5: CATALOGO_ESTATUS_BASCULA["estatus_5"]["texto"],
+}
+
+# ==============================================================================
+# CATÁLOGO DE UNIDADES (CLASE DE EXPEDICIÓN)
+# ==============================================================================
+CATALOGO_UNIDADES = {
+    "F1": {"unidad_nom": "tolva sencilla",      "tipo_unidad": "sencilla"},
+    "F2": {"unidad_nom": "plataforma sencilla", "tipo_unidad": "sencilla"},
+    "F3": {"unidad_nom": "torton",              "tipo_unidad": "sencilla"},
+    "F4": {"unidad_nom": "plataforma full",     "tipo_unidad": "full"},
+    "F5": {"unidad_nom": "tolvita",             "tipo_unidad": "sencilla"},
+    "F7": {"unidad_nom": "tolva full",          "tipo_unidad": "full"},
 }
 
 # ==============================================================================
