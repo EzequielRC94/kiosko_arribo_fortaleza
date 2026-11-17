@@ -8,10 +8,12 @@ docs proyecto/
 __pycache__/
 *.pyc
 
-# Archivos generados por PyInstaller
+# Archivos generados por PyInstaller y runtime portable
 build/
 dist/
 *.spec
+python_runtime/
+python-3.11.6-embed-win32.zip
 
 # Archivos de sistema operativo
 .DS_Store

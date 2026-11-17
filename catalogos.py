@@ -91,7 +91,7 @@ CATALOGO_PLANTAS = {
             },
             {
                 "id_linea": "PALMAR_ENV",
-                "nombre": "Envasado (2 naves + patio)",
+                "nombre": "Envasado",
                 "gpo": "envasado",
                 "ce": "MX16",
                 "capacidad_total": 6,
@@ -314,10 +314,10 @@ CATALOGO_MATERIALES = {
     "1330641": {"desc_nom_corto": "RS 42.6",         "grupo": "granel",   "bg": "#A24E56", "fg": "#FFFFFF"},
 
     # --- granel --- (Colores extraídos de tu lógica VBA)
-    "974360":  {"desc_nom_corto": "BCO granel",     "grupo": "granel", "bg": "#CA2BFA", "fg": "#FFFFFF"}, # 
-    "974527":  {"desc_nom_corto": "granel RS",      "grupo": "granel", "bg": "#A24E56", "fg": "#FFFFFF"}, # Vino tinto
-    "974531":  {"desc_nom_corto": "granel",         "grupo": "granel", "bg": "#5E1B21", "fg": "#FFFFFF"}, # Rojo oscuro (Granel L2)
-    "981035":  {"desc_nom_corto": "granel MEXALIT", "grupo": "granel", "bg": "#8C4EA2", "fg": "#FFFFFF"}, # Morado oscuro
+    "974360":  {"desc_nom_corto": "BCO GRANEL",     "grupo": "granel", "bg": "#CA2BFA", "fg": "#FFFFFF"}, # 
+    "974527":  {"desc_nom_corto": "GRANEL RS",      "grupo": "granel", "bg": "#A24E56", "fg": "#FFFFFF"}, # Vino tinto
+    "974531":  {"desc_nom_corto": "GRANEL",         "grupo": "granel", "bg": "#5E1B21", "fg": "#FFFFFF"}, # Rojo oscuro (Granel L2)
+    "981035":  {"desc_nom_corto": "GRANEL MEXALIT", "grupo": "granel", "bg": "#8C4EA2", "fg": "#FFFFFF"}, # Morado oscuro
 
     # --- BIG BAG ---
     "41335":   {"desc_nom_corto": "BIG BAG",        "grupo": "envasado", "bg": "#00B0F0", "fg": "#000000"}, # Azul cielo intenso

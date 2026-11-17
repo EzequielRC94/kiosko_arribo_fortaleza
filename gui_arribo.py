@@ -84,7 +84,7 @@ class Ventana1_IngresoRemision(QWidget):
         # --- 1. Crear el portarretratos (QLabel) ---
         self.lbl_imagen_qr = QLabel(self)
 
-        directorio_actual = os.path.dirname(os.path.abspath(__file__))
+        directorio_actual = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
         ruta_imagen = os.path.join(directorio_actual, "images", "logo_escaner.png")
         pixmap_qr = QPixmap(ruta_imagen)
         pixmap_escalado = pixmap_qr.scaled(

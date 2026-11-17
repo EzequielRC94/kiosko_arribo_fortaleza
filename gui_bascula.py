@@ -1135,14 +1135,14 @@ class VentanaBasculaMain(QMainWindow):
             lay_box.setSpacing(14)
 
             lbl_cap = QLabel(f"Capacidad Máxima: {ocupacion_linea['capacidad_total']}")
-            lbl_cap.setStyleSheet("border: none; font-size: 15px; font-weight: bold; color: #334155;")
+            lbl_cap.setStyleSheet("border: none; font-size: 16px; font-weight: bold; color: #334155;")
 
             lbl_planta = QLabel(f"Unidades en Planta: {ocupacion_linea['en_planta']}")
-            lbl_planta.setStyleSheet("border: none; font-size: 15px; font-weight: bold; color: #0F766E;")
+            lbl_planta.setStyleSheet("border: none; font-size: 16px; font-weight: bold; color: #0F766E;")
 
             color_disp = "#15803D" if ocupacion_linea["disponibles"] > 0 else "#B91C1C"
             lbl_disp = QLabel(f"Faltan por Ingresar: {ocupacion_linea['disponibles']}")
-            lbl_disp.setStyleSheet(f"border: none; font-size: 15px; font-weight: bold; color: {color_disp};")
+            lbl_disp.setStyleSheet(f"border: none; font-size: 16px; font-weight: bold; color: {color_disp};")
 
             lay_box.addWidget(lbl_cap)
             lay_box.addWidget(lbl_planta)
