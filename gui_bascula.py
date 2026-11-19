@@ -56,38 +56,40 @@ def formatear_fecha_larga_es(fecha_dt: datetime) -> str:
     mes_nom = MESES_ES[fecha_dt.month]
     return f"{dia_sem}, {fecha_dt.day} de {mes_nom} de {fecha_dt.year}"
 
-
 def obtener_tipo_unidad(clase_expedicion: str) -> str:
     """
     Devuelve 'full' o 'sencilla' a partir de clase_expedicion (F1, F2, F3, F4, F5, F7)
     consultando CATALOGO_UNIDADES.
     """
-    cod = str(clase_expedicion or "").strip().upper()
-    info = CATALOGO_UNIDADES.get(cod, {})
+    cl_exp = str(clase_expedicion or "").strip().upper()
+    info = CATALOGO_UNIDADES.get(cl_exp, {})
     return str(info.get("tipo_unidad", "sencilla")).strip().lower()
-
 
 def obtener_lineas_planta(nombre_planta: str, gpo: str = "", ce: str = "") -> list:
     """Retorna la lista de configuraciones de líneas de carga para la planta/vista desde CATALOGO_PLANTAS."""
-    pl_u = str(nombre_planta or "").strip().upper()
-    gpo_l = str(gpo or "").strip().lower()
-    ce_u = str(ce or "").strip().upper()
+    planta_normalizada = str(nombre_planta or "").strip().upper()
+    gpo_mat_filtro = str(gpo or "").strip().lower()
+    c_exp_filtro = str(ce or "").strip().upper()
 
-    lineas = []
-    for nom_p, info_p in CATALOGO_PLANTAS.items():
-        nom_c_u = str(info_p.get("nombre_centro", "")).strip().upper()
-        if pl_u == nom_p.upper() or (nom_c_u and nom_c_u in pl_u) or nom_p.upper() in pl_u:
-            lineas = info_p.get("capacidades_lineas", [])
+    lineas_planta = []
+    for nombre_catalogo_planta, datos_planta in CATALOGO_PLANTAS.items():
+        nombre_centro_catalogo = str(datos_planta.get("nombre_centro", "")).strip().upper()
+        if (
+            planta_normalizada == nombre_catalogo_planta.upper()
+            or (nombre_centro_catalogo and nombre_centro_catalogo in planta_normalizada)
+            or nombre_catalogo_planta.upper() in planta_normalizada
+        ):
+            lineas_planta = datos_planta.get("capacidades_lineas", [])
             break
 
-    filtradas = []
-    for ln in lineas:
-        if gpo_l and str(ln.get("gpo", "")).lower() != gpo_l:
+    lineas_filtradas = []
+    for config_linea in lineas_planta:
+        if gpo_mat_filtro and str(config_linea.get("gpo", "")).lower() != gpo_mat_filtro:
             continue
-        if ce_u and str(ln.get("ce", "")).upper() != ce_u:
+        if c_exp_filtro and str(config_linea.get("ce", "")).upper() != c_exp_filtro:
             continue
-        filtradas.append(ln)
-    return filtradas
+        lineas_filtradas.append(config_linea)
+    return lineas_filtradas
 
 
 class DashboardSalidasWidget(QWidget):

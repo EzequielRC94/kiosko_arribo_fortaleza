@@ -1755,10 +1755,245 @@ def actualizar_parquet_fbl4n() -> dict:
     return res
 
 
+# ==============================================================================
+# PARQUETS ESTÁTICOS DE CATÁLOGOS (DESDE catalogos.py)
+# ==============================================================================
+
+def _resolver_ruta_parquet_catalogo(nombre_catalogo: str, directorio_parquet: str = None) -> str:
+    """Resuelve la ruta final del archivo .parquet para un catálogo estático."""
+    nombre_limpio = str(nombre_catalogo).strip().lower()
+    if not nombre_limpio.endswith(".parquet"):
+        nombre_limpio = f"{nombre_limpio}.parquet"
+
+    if directorio_parquet:
+        os.makedirs(directorio_parquet, exist_ok=True)
+        return os.path.join(directorio_parquet, nombre_limpio)
+
+    rutas = obtener_rutas_transaccion(nombre_limpio.replace(".parquet", ""))
+    return rutas["archivo_parquet"]
+
+
+def actualizar_parquet_catalogo_centros(directorio_parquet: str = None) -> dict:
+    """
+    Genera el parquet estático 'catalogo_centros.parquet' a partir de CATALOGO_PLANTAS (catalogos.py).
+    Columnas: c_exp, nombre_centro, tipo_centro, activo.
+    """
+    from catalogos import CATALOGO_PLANTAS
+
+    archivo_parquet = _resolver_ruta_parquet_catalogo("catalogo_centros", directorio_parquet)
+    filas = []
+    for nombre, info in CATALOGO_PLANTAS.items():
+        nom_centro = str(info.get("nombre_centro", nombre)).strip()
+        tipo = info.get("tipo_centro")
+        activo = bool(info.get("activo", False))
+        for cod in info.get("codigos", []):
+            filas.append({
+                "c_exp": str(cod).strip(),
+                "nombre_centro": nom_centro,
+                "tipo_centro": None if tipo is None else str(tipo).strip(),
+                "activo": activo,
+            })
+
+    df = pd.DataFrame(filas, columns=["c_exp", "nombre_centro", "tipo_centro", "activo"])
+    df["activo"] = df["activo"].astype(bool)
+    df.to_parquet(archivo_parquet, engine="fastparquet", index=False)
+    print(f"✅ [catalogo_centros.parquet] Generado ({len(df)} registros) en: {archivo_parquet}")
+    return {
+        "estatus": True,
+        "msg": f"catalogo_centros.parquet generado ({len(df)} filas).",
+        "archivo_parquet": archivo_parquet,
+        "filas": len(df),
+    }
+
+
+def actualizar_parquet_catalogo_materiales(directorio_parquet: str = None) -> dict:
+    """
+    Genera el parquet estático 'catalogo_materiales.parquet' a partir de CATALOGO_MATERIALES (catalogos.py).
+    Columnas: mat_codigo, mat_nom_corto, grupo.
+    """
+    from catalogos import CATALOGO_MATERIALES
+
+    archivo_parquet = _resolver_ruta_parquet_catalogo("catalogo_materiales", directorio_parquet)
+    filas = [
+        {
+            "mat_codigo": str(cod).strip(),
+            "mat_nom_corto": str(info.get("desc_nom_corto", "")).strip(),
+            "grupo": str(info.get("grupo", "")).strip(),
+        }
+        for cod, info in CATALOGO_MATERIALES.items()
+    ]
+
+    df = pd.DataFrame(filas, columns=["mat_codigo", "mat_nom_corto", "grupo"])
+    df.to_parquet(archivo_parquet, engine="fastparquet", index=False)
+    print(f"✅ [catalogo_materiales.parquet] Generado ({len(df)} registros) en: {archivo_parquet}")
+    return {
+        "estatus": True,
+        "msg": f"catalogo_materiales.parquet generado ({len(df)} filas).",
+        "archivo_parquet": archivo_parquet,
+        "filas": len(df),
+    }
+
+
+def actualizar_parquet_catalogo_fechas(directorio_parquet: str = None) -> dict:
+    """
+    Genera el parquet estático 'catalogo_fechas.parquet' a partir de CATALOGO_FECHAS (catalogos.py).
+    Columnas: Fecha, Nombre del día, Semana, Etiqueta Semana, Nombre del mes, Mes, Año,
+              mes_año, Nombre del día completo, Día de la semana, EsDescanso, EsFestivo, EsDiaHabil.
+    """
+    from catalogos import CATALOGO_FECHAS
+
+    archivo_parquet = _resolver_ruta_parquet_catalogo("catalogo_fechas", directorio_parquet)
+    columnas = [
+        "Fecha",
+        "Nombre del día",
+        "Semana",
+        "Etiqueta Semana",
+        "Nombre del mes",
+        "Mes",
+        "Año",
+        "mes_año",
+        "Nombre del día completo",
+        "Día de la semana",
+        "EsDescanso",
+        "EsFestivo",
+        "EsDiaHabil",
+    ]
+    filas = [CATALOGO_FECHAS[k] for k in sorted(CATALOGO_FECHAS.keys())]
+    df = pd.DataFrame(filas, columns=columnas)
+
+    for col_int in ["Semana", "Mes", "Año", "Día de la semana", "EsDescanso", "EsFestivo", "EsDiaHabil"]:
+        df[col_int] = pd.to_numeric(df[col_int], errors="coerce").astype("Int64")
+
+    df.to_parquet(archivo_parquet, engine="fastparquet", index=False)
+    print(f"✅ [catalogo_fechas.parquet] Generado ({len(df)} registros) en: {archivo_parquet}")
+    return {
+        "estatus": True,
+        "msg": f"catalogo_fechas.parquet generado ({len(df)} filas).",
+        "archivo_parquet": archivo_parquet,
+        "filas": len(df),
+    }
+
+
+def actualizar_parquet_catalogo_lineas_transporte(directorio_parquet: str = None) -> dict:
+    """
+    Genera el parquet estático 'catalogo_lineas_transporte.parquet' a partir de
+    CATALOGO_LINEAS_TRANSPORTE (catalogos.py).
+    Columnas: no_transporte, razon_social, nom_corto, clase_transportista, activo.
+    """
+    from catalogos import CATALOGO_LINEAS_TRANSPORTE
+
+    archivo_parquet = _resolver_ruta_parquet_catalogo("catalogo_lineas_transporte", directorio_parquet)
+    filas = [
+        {
+            "no_transporte": str(cod).strip(),
+            "razon_social": str(info.get("razon_social", "")).strip(),
+            "nom_corto": str(info.get("nom_corto", "")).strip(),
+            "clase_transportista": str(info.get("clase_transportista", "")).strip(),
+            "activo": bool(info.get("activo", False)),
+        }
+        for cod, info in CATALOGO_LINEAS_TRANSPORTE.items()
+    ]
+
+    df = pd.DataFrame(
+        filas,
+        columns=["no_transporte", "razon_social", "nom_corto", "clase_transportista", "activo"],
+    )
+    df["activo"] = df["activo"].astype(bool)
+    df.to_parquet(archivo_parquet, engine="fastparquet", index=False)
+    print(f"✅ [catalogo_lineas_transporte.parquet] Generado ({len(df)} registros) en: {archivo_parquet}")
+    return {
+        "estatus": True,
+        "msg": f"catalogo_lineas_transporte.parquet generado ({len(df)} filas).",
+        "archivo_parquet": archivo_parquet,
+        "filas": len(df),
+    }
+
+
+# ==============================================================================
+# ACTUALIZADOR 1: PARQUETS OPERATIVOS (ACTUALIZACIÓN CONTINUA)
+# ==============================================================================
+
+def actualizar_parquets_operativos(ruta_base_drive: str = None) -> dict:
+    """
+    Actualizador 1: consolida y actualiza todos los Parquets operativos
+    respetando el orden de dependencias (vt16 primero para los cruces de 249 y fbl4n):
+      1. vt16.parquet
+      2. 389_en_proceso.parquet y 389_pendientes.parquet
+      3. 249.parquet
+      4. 267.parquet
+      5. fbl4n.parquet
+    """
+    tareas = [
+        ("vt16", lambda: actualizar_parquet_vt16()),
+        ("389", lambda: actualizar_parquet_zsdmx389(ruta_base_drive=ruta_base_drive)),
+        ("249", lambda: actualizar_parquet_zsdmx249()),
+        ("267", lambda: actualizar_parquet_zsdmx267()),
+        ("fbl4n", lambda: actualizar_parquet_fbl4n()),
+    ]
+    detalles = {}
+    todo_ok = True
+    for clave, fn in tareas:
+        try:
+            res_tx = fn()
+        except Exception as e:
+            res_tx = {"estatus": False, "msg": str(e)}
+        detalles[clave] = res_tx
+        if not res_tx.get("estatus", False):
+            todo_ok = False
+
+    return {
+        "estatus": todo_ok,
+        "msg": "Parquets operativos actualizados correctamente." if todo_ok else "Algunos Parquets operativos reportaron avisos/errores.",
+        "detalles": detalles,
+    }
+
+
+# ==============================================================================
+# ACTUALIZADOR 2: PARQUETS ESTÁTICOS (SIN ACTUALIZACIÓN CONTINUA)
+# ==============================================================================
+
+def actualizar_todos_catalogos_parquet(directorio_parquet: str = None) -> dict:
+    """
+    Actualizador 2 (bajo demanda): genera y actualiza los 4 archivos .parquet
+    estáticos de catálogos a partir de catalogos.py (no requieren actualización continua):
+      - catalogo_centros.parquet           (desde CATALOGO_PLANTAS)
+      - catalogo_materiales.parquet        (desde CATALOGO_MATERIALES)
+      - catalogo_fechas.parquet            (desde CATALOGO_FECHAS)
+      - catalogo_lineas_transporte.parquet (desde CATALOGO_LINEAS_TRANSPORTE)
+    """
+    generadores = {
+        "centros": actualizar_parquet_catalogo_centros,
+        "materiales": actualizar_parquet_catalogo_materiales,
+        "fechas": actualizar_parquet_catalogo_fechas,
+        "lineas_transporte": actualizar_parquet_catalogo_lineas_transporte,
+    }
+    detalles = {}
+    todo_ok = True
+    for clave, fn in generadores.items():
+        try:
+            res_cat = fn(directorio_parquet=directorio_parquet)
+        except Exception as e:
+            res_cat = {"estatus": False, "msg": str(e), "archivo_parquet": None, "filas": 0}
+        detalles[clave] = res_cat
+        if not res_cat.get("estatus", False):
+            todo_ok = False
+
+    return {
+        "estatus": todo_ok,
+        "msg": "Parquets estáticos de catálogos actualizados correctamente." if todo_ok else "Algunos catálogos tuvieron error.",
+        "detalles": detalles,
+    }
+
+
+actualizar_parquets_catalogos = actualizar_todos_catalogos_parquet
+
+
 if __name__ == "__main__":
-    actualizar_parquet_zsdmx389()
-    actualizar_parquet_zsdmx249()
-    actualizar_parquet_zsdmx267()
-    actualizar_parquet_vt16()
-    actualizar_parquet_fbl4n()
-    print("Prueba final. Todos los Parquets se han actualizado correctamente.")
+    if "--catalogos" in sys.argv:
+        # Actualizador 2: Parquets estáticos (solo bajo demanda)
+        actualizar_todos_catalogos_parquet()
+        print("Actualizador 2 finalizado. Parquets estáticos de catálogos actualizados.")
+    else:
+        # Actualizador 1: Parquets operativos (actualización continua)
+        actualizar_parquets_operativos()
+        print("Actualizador 1 finalizado. Todos los Parquets operativos se han actualizado correctamente.")

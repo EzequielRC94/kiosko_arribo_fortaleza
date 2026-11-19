@@ -1,9 +1,9 @@
 # catalogos.py
-import os
+# Almacén central de catálogos estáticos (sin lógica de análisis ni creación de archivos).
 
 # ==============================================================================
 # CATÁLOGO DE PLANTAS Y CENTROS DE EXPEDICIÓN
-# Mandante para la app Kiosko/Báscula y para Power Query (zql_bi_catalogo_centros.pq)
+# Mandante para la app Kiosko/Báscula y para catalogo_centros.parquet
 # ==============================================================================
 
 CATALOGO_PLANTAS = {
@@ -289,7 +289,7 @@ CATALOGO_PLANTAS = {
 
 # ==============================================================================
 # BASE DE DATOS DE MATERIALES (SKUs)
-# Mandante para la app Kiosko/Báscula y para Power Query (zql_bi_catalogo_materiales.pq)
+# Mandante para la app Kiosko/Báscula y para catalogo_materiales.parquet
 # ==============================================================================
 CATALOGO_MATERIALES = {
     # --- envasado ---
@@ -481,7 +481,7 @@ def obtener_pct_retirado(
 
 
 # ==============================================================================
-# CATÁLOGO DE FECHAS Y DÍAS HÁBILES (MANDANTE PARA PYTHON Y POWER QUERY)
+# CATÁLOGO DE FECHAS Y DÍAS HÁBILES (MANDANTE PARA PYTHON Y catalogo_fechas.parquet)
 # ==============================================================================
 FESTIVOS_2026 = [
     "2026-01-01",
@@ -511,8 +511,8 @@ def _construir_catalogo_fechas(
     festivos: list = None,
 ) -> dict:
     """
-    Construye el diccionario maestro CATALOGO_FECHAS día por día con las mismas
-    reglas y columnas que zql_bi_catalogo_fechas.pq:
+    Construye el diccionario maestro CATALOGO_FECHAS día por día para
+    Python y catalogo_fechas.parquet:
       - Fecha (YYYY-MM-DD)
       - Nombre del día (lun..dom)
       - Semana (ISO / Lunes = día 1)
@@ -569,6 +569,119 @@ CATALOGO_FECHAS = _construir_catalogo_fechas()
 
 
 # ==============================================================================
+# CATÁLOGO DE LÍNEAS DE TRANSPORTE (MANDANTE PARA catalogo_lineas_transporte.parquet)
+# ==============================================================================
+CATALOGO_LINEAS_TRANSPORTE = {
+    "708348":  {"razon_social": "ALEJANDRA JASMIN HERNANDEZ VAZQUEZ", "nom_corto": "Alejandra Jasmin", "clase_transportista": "transportista", "activo": False},
+    "706556":  {"razon_social": "ALFONSO ORTIZ RAMIREZ", "nom_corto": "Alfonso Ortiz", "clase_transportista": "transportista", "activo": True},
+    "707607":  {"razon_social": "ANGEL CHAVEZ LEON", "nom_corto": "Angel Chavez", "clase_transportista": "transportista", "activo": False},
+    "705801":  {"razon_social": "ARTURO VASQUEZ CASTILLO", "nom_corto": "Arturo Vaques", "clase_transportista": "transportista", "activo": False},
+    "708541":  {"razon_social": "BLOCK TABICON Y AGREGADOS SA DE CV", "nom_corto": "Block Tabicon", "clase_transportista": "transportista", "activo": False},
+    "707652":  {"razon_social": "CESAR PELAEZ ROJAS", "nom_corto": "Cesar Pelaez", "clase_transportista": "transportista", "activo": False},
+    "708455":  {"razon_social": "CLA KAR COMPAÑIA DEL SURESTE SA DE", "nom_corto": "Cla Kar", "clase_transportista": "transportista", "activo": False},
+    "707765":  {"razon_social": "COMERCIALIZADORA EE SERRANO S.A DE C.V", "nom_corto": "EE Serrano", "clase_transportista": "transportista", "activo": False},
+    "1626602": {"razon_social": "CORPORATIVO TAEMSI", "nom_corto": "Taemsi", "clase_transportista": "transportista", "activo": False},
+    "708401":  {"razon_social": "EVERARDO OLVERA AVILA", "nom_corto": "Everardo Olvera", "clase_transportista": "transportista", "activo": False},
+    "707673":  {"razon_social": "FERNANDO ORTA ACOSTA", "nom_corto": "Fernando Orta", "clase_transportista": "transportista", "activo": False},
+    "700001":  {"razon_social": "FERROMEX SA DE CV", "nom_corto": "Ferromex", "clase_transportista": "Ferroviario", "activo": False},
+    "705561":  {"razon_social": "FERROSUR SA DE CV", "nom_corto": "Ferrosur", "clase_transportista": "Ferroviario", "activo": False},
+    "708493":  {"razon_social": "FLETERA ITZAE S DE RL DE CV", "nom_corto": "Itzae", "clase_transportista": "transportista", "activo": False},
+    "707837":  {"razon_social": "GERARDO PEREZ HERNANDEZ", "nom_corto": "Gerardo Perez", "clase_transportista": "transportista", "activo": False},
+    "708457":  {"razon_social": "GRUPO CITRAB", "nom_corto": "Citrab", "clase_transportista": "transportista", "activo": False},
+    "706968":  {"razon_social": "JESUS HERNANDEZ TORRES", "nom_corto": "Jesus Hernandez", "clase_transportista": "transportista", "activo": False},
+    "707699":  {"razon_social": "JOAQUIN YAÑEZ LEON", "nom_corto": "Joaquin Yañez", "clase_transportista": "transportista", "activo": False},
+    "708406":  {"razon_social": "JORGE ALFREDO VILLEDA HERNANDEZ", "nom_corto": "Jorge Alfredo", "clase_transportista": "transportista", "activo": False},
+    "708512":  {"razon_social": "JORGE EMMANUEL VILLEDA SALDAÑA", "nom_corto": "Emmanuel Villeda", "clase_transportista": "transportista", "activo": False},
+    "705651":  {"razon_social": "JOSE SALOMON VILLEGAS VELAZQUEZ", "nom_corto": "Jose Salomon", "clase_transportista": "transportista", "activo": False},
+    "708428":  {"razon_social": "LEOPOLDO BALBOA ALONSO", "nom_corto": "Leopoldo Balboa", "clase_transportista": "transportista", "activo": False},
+    "707771":  {"razon_social": "LEOPOLDO MARTIN VAZQUEZ OROPEZA", "nom_corto": "Vazoro", "clase_transportista": "transportista", "activo": False},
+    "708213":  {"razon_social": "LUGO MENDEZ ROGER ALBERTO", "nom_corto": "Lugo Mendez", "clase_transportista": "transportista", "activo": False},
+    "707835":  {"razon_social": "M & N INDUSTRIAL SOLUTIONS S.A DE C.V", "nom_corto": "M & N", "clase_transportista": "transportista", "activo": False},
+    "708231":  {"razon_social": "MADERA DOMINGUEZ VICTOR DE ATOCHA", "nom_corto": "Madera Dominguez", "clase_transportista": "transportista", "activo": False},
+    "708489":  {"razon_social": "MARCO ANTONIO VILLALOBOS ARROYO", "nom_corto": "Marco Villalobos", "clase_transportista": "transportista", "activo": False},
+    "708542":  {"razon_social": "MAURICIO RAFAEL LEPE VALDEZ", "nom_corto": "Lepe", "clase_transportista": "transportista", "activo": False},
+    "707396":  {"razon_social": "MAURICIO YAÑEZ BAUTISTA", "nom_corto": "Mauricio Yañez", "clase_transportista": "transportista", "activo": False},
+    "708310":  {"razon_social": "MAURILIO VEGA ESTRADA", "nom_corto": "Maurilio Bega", "clase_transportista": "transportista", "activo": False},
+    "706463":  {"razon_social": "OLP CONSTRUCCIONES", "nom_corto": "OLP Cons", "clase_transportista": "transportista", "activo": False},
+    "705947":  {"razon_social": "OSCAR SILVA MORA", "nom_corto": "Oscar Silva", "clase_transportista": "transportista", "activo": False},
+    "1626586": {"razon_social": "ROBLES FARIAS ADLAI FRANCISCO", "nom_corto": "Adlai Francisco", "clase_transportista": "transportista", "activo": False},
+    "707015":  {"razon_social": "SANDRA AZPEITIA GARCIA", "nom_corto": "Sandra Azpeitia", "clase_transportista": "transportista", "activo": False},
+    "705800":  {"razon_social": "SERVICIOS LOGISTICOS SULTANES S.A D", "nom_corto": "Los Sultanes", "clase_transportista": "transportista", "activo": False},
+    "15733":   {"razon_social": "TRANSPORTACIÓN TERRESTRE ESPECIALIZADA S.A. DE C.V.", "nom_corto": "Transp Especializada", "clase_transportista": "transportista", "activo": False},
+    "708080":  {"razon_social": "TRANSPORTADORA GEOS S.A DE C.V.", "nom_corto": "Geos", "clase_transportista": "transportista", "activo": False},
+    "1629958": {"razon_social": "TRANSPORTE INGENIERIA Y SERVICIOS T", "nom_corto": "Transp Ingenieia", "clase_transportista": "transportista", "activo": False},
+    "708329":  {"razon_social": "TRANSPORTES JORMAC SA DE CV", "nom_corto": "Jormac", "clase_transportista": "transportista", "activo": False},
+    "704663":  {"razon_social": "TRANSPORTES PITIC  S.A. DE    C.V.", "nom_corto": "Pitic", "clase_transportista": "autoflete", "activo": False},
+    "1628015": {"razon_social": "TRANSPORTES TRIPLE P SAS DE CV", "nom_corto": "Triple P", "clase_transportista": "transportista", "activo": False},
+    "708403":  {"razon_social": "TRANSPORTES Y MAQUINARIA SAN FRANCISCO", "nom_corto": "San Francisco", "clase_transportista": "transportista", "activo": False},
+    "706150":  {"razon_social": "TRANSPORTISTAS UNIDOS DEL REFUGIO S.A. DE C.V.", "nom_corto": "Tursa", "clase_transportista": "transportista", "activo": False},
+    "706296":  {"razon_social": "TRELSA SA DE CV", "nom_corto": "Trelsa", "clase_transportista": "transportista", "activo": False},
+    "1900330": {"razon_social": "UNILAND TRADING B.V.", "nom_corto": "Uniland T", "clase_transportista": "transportista", "activo": False},
+    "707025":  {"razon_social": "VENY EDGAR GARCIA MARTINEZ", "nom_corto": "Veny Garcia", "clase_transportista": "transportista", "activo": False},
+    "708523":  {"razon_social": "VIANEY MENDOZA GALVEZ", "nom_corto": "Vianey Mendoza", "clase_transportista": "transportista", "activo": False},
+    "705717":  {"razon_social": "ADOCRETOS DE PUEBLA SA DE CV", "nom_corto": "Adocretos", "clase_transportista": "autoflete", "activo": True},
+    "706638":  {"razon_social": "ALVARO ADAN CRUZ LOPEZ", "nom_corto": "Alvaro Adan", "clase_transportista": "transportista", "activo": True},
+    "707825":  {"razon_social": "ANA GABRIELA CRUZ FLORES", "nom_corto": "Ana Gabriela", "clase_transportista": "transportista", "activo": True},
+    "708496":  {"razon_social": "ANAYELY MARLEN CHOREÑO TESILLO", "nom_corto": "LMR Anayely", "clase_transportista": "transportista", "activo": True},
+    "708498":  {"razon_social": "AUTOTRANSPORTES ESPECIALIZADOS ALFA", "nom_corto": "Alfa", "clase_transportista": "transportista", "activo": True},
+    "834838":  {"razon_social": "CEMENTOS DEL BAJIO S.A. DE C.V.", "nom_corto": "Cementos del Bajio", "clase_transportista": "transportista", "activo": True},
+    "707046":  {"razon_social": "CENTRO DE DISTRIBUCION FORTALEZA MO", "nom_corto": "Dist Foraleza Morelia", "clase_transportista": "transportista", "activo": True},
+    "708421":  {"razon_social": "DAFNE GARRIDO RESENDIZ", "nom_corto": "Dafne Garrido", "clase_transportista": "transportista", "activo": True},
+    "708192":  {"razon_social": "DIANA VANESSA RAMÍREZ SOTO", "nom_corto": "Diana Vanessa", "clase_transportista": "transportista", "activo": True},
+    "705910":  {"razon_social": "EDGAR MONROY FRIAS", "nom_corto": "Edgar Monroy", "clase_transportista": "transportista", "activo": True},
+    "707215":  {"razon_social": "FELIPE ALMAZAN HERNANDEZ", "nom_corto": "Felipe Almazan", "clase_transportista": "transportista", "activo": True},
+    "708263":  {"razon_social": "FLETES HESA, S. A. DE C. V.", "nom_corto": "Fletes Hesa", "clase_transportista": "transportista", "activo": True},
+    "705845":  {"razon_social": "FLETES PREHI, S. DE R.L. DE C.V.", "nom_corto": "Prehi", "clase_transportista": "transportista", "activo": True},
+    "823476":  {"razon_social": "FRANCISCO AGUILAR BARRON", "nom_corto": "Fco Aguilar", "clase_transportista": "transportista", "activo": True},
+    "708529":  {"razon_social": "FRANCISCO JAVIER MONTEJO RAMIREZ", "nom_corto": "Fco Javier Montejo", "clase_transportista": "transportista", "activo": True},
+    "706330":  {"razon_social": "GABRIELA SANCHEZ MENDOZA", "nom_corto": "Gabriela Sanchez", "clase_transportista": "sindicato", "activo": True},
+    "707431":  {"razon_social": "GENOVEVA AIDE EUROZA LUGO", "nom_corto": "Genoveva Aide", "clase_transportista": "sindicato", "activo": True},
+    "708418":  {"razon_social": "GEOMEM CONSTRUCCIONES", "nom_corto": "Geomem", "clase_transportista": "transportista", "activo": True},
+    "706920":  {"razon_social": "GLORIA MONROY HERNANDEZ", "nom_corto": "Gloria Monroy", "clase_transportista": "transportista", "activo": True},
+    "1629842": {"razon_social": "GRUPO TRANSMENAGUI SA DE CV", "nom_corto": "Transmenagui", "clase_transportista": "transportista", "activo": True},
+    "706856":  {"razon_social": "GUSTAVO RAMIREZ LEON", "nom_corto": "Gustavo Ramirez", "clase_transportista": "transportista", "activo": True},
+    "707355":  {"razon_social": "GUSTAVO VELAZQUEZ MELCHOR", "nom_corto": "Gustavo Velazquez", "clase_transportista": "transportista", "activo": True},
+    "708463":  {"razon_social": "ISMAEL VELAZQUEZ SANCHEZ", "nom_corto": "Ismael Velazquez", "clase_transportista": "transportista", "activo": True},
+    "708398":  {"razon_social": "IVONNE NAVARRETE CRUZ", "nom_corto": "Ivonne Navarrete", "clase_transportista": "transportista", "activo": True},
+    "707757":  {"razon_social": "JESUS ALDHEIR SANCHEZ PELAEZ", "nom_corto": "Jesus Aldheir", "clase_transportista": "transportista", "activo": True},
+    "707409":  {"razon_social": "JOSE LUIS CRUZ HERNANDEZ", "nom_corto": "Jose Luis Cruz", "clase_transportista": "transportista", "activo": True},
+    "707861":  {"razon_social": "JOSUE GABRIEL ALMAZAN ALVARES", "nom_corto": "Josue Almazan", "clase_transportista": "transportista", "activo": True},
+    "707656":  {"razon_social": "JUAN CARLOS GARDUNO CRUZ", "nom_corto": "J Carlos Garduño", "clase_transportista": "transportista", "activo": True},
+    "708405":  {"razon_social": "KIAV ELECTROCONSTRUCCIONES", "nom_corto": "Kiav", "clase_transportista": "transportista", "activo": False},
+    "708425":  {"razon_social": "LI TRANSPORTES SA DE CV", "nom_corto": "Li Transportes", "clase_transportista": "transportista", "activo": True},
+    "708091":  {"razon_social": "LOGISTICA EN TRANSPORTE NACIONAL E INTERNACIÓN K + K", "nom_corto": "K + K", "clase_transportista": "sindicato", "activo": True},
+    "707895":  {"razon_social": "LOGISTICA ESPECIALIZADA EN PRODUCTO ENVASADO Y GRANEL S DE RL DE CV", "nom_corto": "Logistica Sindicato", "clase_transportista": "sindicato", "activo": True},
+    "708446":  {"razon_social": "LOGISTICA OPERACIONES A GRANEL", "nom_corto": "Ops a Granel", "clase_transportista": "transportista", "activo": True},
+    "707422":  {"razon_social": "LORENA MENDOZA SANCHEZ", "nom_corto": "Lorena Mendoza", "clase_transportista": "transportista", "activo": True},
+    "840041":  {"razon_social": "LORENZO ANTONIO ALMAZAN GONZALEZ", "nom_corto": "Lorenzo Danton", "clase_transportista": "transportista", "activo": True},
+    "707800":  {"razon_social": "LUIS FELIPE ALVAREZ", "nom_corto": "Luis Felipe TAM", "clase_transportista": "transportista", "activo": True},
+    "708409":  {"razon_social": "MARIA DEL CARMEN ZAMORA RAMIREZ", "nom_corto": "Maria Del Carmen", "clase_transportista": "transportista", "activo": True},
+    "706855":  {"razon_social": "MARTIN HERRERA MORENO", "nom_corto": "Martin Herrera", "clase_transportista": "transportista", "activo": True},
+    "707681":  {"razon_social": "MIRIAM CAMACHO MOCTEZUMA", "nom_corto": "Miriam Camacho", "clase_transportista": "transportista", "activo": True},
+    "708221":  {"razon_social": "MISAEL NATERAS MARTINEZ", "nom_corto": "Misael Nateras", "clase_transportista": "transportista", "activo": True},
+    "707286":  {"razon_social": "OMAR ANDRES NAVARRETE CRUZ", "nom_corto": "Omar Navarrete", "clase_transportista": "transportista", "activo": True},
+    "707480":  {"razon_social": "PABLO AVILA DIMAS", "nom_corto": "Pablo Avila", "clase_transportista": "transportista", "activo": True},
+    "1628471": {"razon_social": "PR CONSTRUCCION Y LOGISTICA", "nom_corto": "PR Logistica", "clase_transportista": "transportista", "activo": True},
+    "708115":  {"razon_social": "RAUL GOMEZ HERNANDEZ", "nom_corto": "Raul Gomez", "clase_transportista": "transportista", "activo": True},
+    "702551":  {"razon_social": "RETIRADO", "nom_corto": "RETIRADO", "clase_transportista": "transportista", "activo": True},
+    "706600":  {"razon_social": "ROGELIO LOPEZ MORENO", "nom_corto": "Rogelio Lopez", "clase_transportista": "transportista", "activo": True},
+    "706290":  {"razon_social": "ROGELIO NAVARRETE LOPEZ", "nom_corto": "Rogelio Navarrete", "clase_transportista": "transportista", "activo": True},
+    "707375":  {"razon_social": "ROSA ISELA ESPERILLA CRUZ", "nom_corto": "Rosa Isela", "clase_transportista": "transportista", "activo": True},
+    "707095":  {"razon_social": "SERGIO ALMAZAN SANCHEZ", "nom_corto": "Sergio Almazan", "clase_transportista": "transportista", "activo": True},
+    "1629400": {"razon_social": "SOCIEDAD COOPERATIVA DE PRODUCCION Y PRESTACION DE SERVICIOS CUAUHT", "nom_corto": "Cuauhtemoc", "clase_transportista": "transportista", "activo": True},
+    "1628181": {"razon_social": "THS TRANSPORT S.A. DE C.V.", "nom_corto": "THS", "clase_transportista": "transportista", "activo": True},
+    "706603":  {"razon_social": "TRACTOCARGA SAN ANGEL S.A. DE C.V.", "nom_corto": "San Angel", "clase_transportista": "transportista", "activo": True},
+    "705905":  {"razon_social": "TRANSITIA SC DEL RL DE CV", "nom_corto": "Transitia", "clase_transportista": "transportista", "activo": True},
+    "822591":  {"razon_social": "TRANSPORTACION CARRETERA, S.A. DE C.V.", "nom_corto": "Tracsa", "clase_transportista": "transportista", "activo": True},
+    "708241":  {"razon_social": "TRANSPORTES ABC DEL CARIBE SA DE CV", "nom_corto": "ABC Del Caribe", "clase_transportista": "transportista", "activo": True},
+    "706631":  {"razon_social": "TRANSPORTES DE CARGA EDOS S.A DE C.V", "nom_corto": "Edos", "clase_transportista": "sindicato", "activo": True},
+    "708531":  {"razon_social": "TRANSPORTES DEL BAJIO LOPEZ", "nom_corto": "Bajio Lopez", "clase_transportista": "transportista", "activo": True},
+    "708202":  {"razon_social": "TRANSPORTES QUERETANOS SA DE CV", "nom_corto": "Queretanos", "clase_transportista": "autoflete", "activo": True},
+    "707386":  {"razon_social": "URIEL MONROY GARCIA", "nom_corto": "Uriel Monroy", "clase_transportista": "transportista", "activo": True},
+    "708456":  {"razon_social": "URIEL PAREDES PEREZ", "nom_corto": "Uriel Paredes", "clase_transportista": "transportista", "activo": True},
+}
+
+# ==============================================================================
 # FUTUROS CATÁLOGOS (Estructuras vacías o ejemplos)
 # ==============================================================================
 CATALOGO_CLIENTES = {
@@ -579,163 +692,3 @@ CATALOGO_PRODUCCION = {
     # "L1": "Línea 1 Envasado",
     # "L2": "Línea 2 Envasado"
 }
-
-
-# ==============================================================================
-# GENERADORES Y SINCRONIZADORES DE CÓDIGO POWER QUERY (M)
-# ==============================================================================
-
-def generar_m_materiales() -> str:
-    """Genera el código M para zql_bi_catalogo_materiales.pq basado en CATALOGO_MATERIALES."""
-    filas = []
-    for cod, info in CATALOGO_MATERIALES.items():
-        desc = info.get("desc_nom_corto", "")
-        grupo = info.get("grupo", "")
-        filas.append(f'        {{"{cod}", "{desc}", "{grupo}"}}')
-    
-    cuerpo_filas = ",\n".join(filas)
-    return (
-        "// zql_bi_catalogo_materiales.pq -> catalogo de materiales generado desde catalogos.py\n\n"
-        "let\n"
-        "    Origen = Table.FromRows({\n"
-        f"{cuerpo_filas}\n"
-        "    },\n"
-        '    {"mat_codigo", "mat_nom_corto", "grupo"}),\n'
-        '    #"Tipo cambiado" = Table.TransformColumnTypes(Origen,{\n'
-        '        {"mat_codigo", type text},\n'
-        '        {"mat_nom_corto", type text},\n'
-        '        {"grupo", type text}\n'
-        "    })\n"
-        "in\n"
-        '    #"Tipo cambiado"\n'
-    )
-
-
-def generar_m_centros() -> str:
-    """Genera el código M para zql_bi_catalogo_centros.pq basado en CATALOGO_PLANTAS."""
-    filas = []
-    for nombre, info in CATALOGO_PLANTAS.items():
-        nom_centro = info.get("nombre_centro", nombre)
-        tipo = info.get("tipo_centro")
-        tipo_str = f'"{tipo}"' if tipo else "null"
-        act_str = "true" if info.get("activo", False) else "false"
-        for cod in info.get("codigos", []):
-            filas.append(f'        {{"{cod}", "{nom_centro}", {tipo_str}, {act_str}}}')
-
-    cuerpo_filas = ",\n".join(filas)
-    return (
-        "// zql_bi_catalogo_centros.pq -> catalogo de centros generado desde catalogos.py\n\n"
-        "let\n"
-        "    Origen = Table.FromRows({\n"
-        f"{cuerpo_filas}\n"
-        "    },\n"
-        '    {"c_exp", "nombre_centro", "tipo_centro", "activo"}),\n'
-        '    #"Tipo cambiado" = Table.TransformColumnTypes(Origen,{\n'
-        '        {"c_exp", type text},\n'
-        '        {"nombre_centro", type text},\n'
-        '        {"tipo_centro", type text},\n'
-        '        {"activo", type logical}\n'
-        "    })\n"
-        "in\n"
-        '    #"Tipo cambiado"\n'
-    )
-
-
-def generar_m_fechas() -> str:
-    """Genera el código M para zql_bi_catalogo_fechas.pq basado en CATALOGO_FECHAS."""
-    fechas_ordenadas = sorted(CATALOGO_FECHAS.keys())
-    if fechas_ordenadas:
-        y_ini, m_ini, d_ini = [int(x) for x in fechas_ordenadas[0].split("-")]
-        y_fin, m_fin, d_fin = [int(x) for x in fechas_ordenadas[-1].split("-")]
-    else:
-        y_ini, m_ini, d_ini = (2026, 1, 1)
-        y_fin, m_fin, d_fin = (2026, 12, 31)
-
-    lineas_festivos = []
-    for f_str in fechas_ordenadas:
-        info_f = CATALOGO_FECHAS[f_str]
-        if int(info_f.get("EsFestivo", 0)) == 1:
-            yf, mf, df_d = [int(x) for x in f_str.split("-")]
-            lineas_festivos.append(f"        #date({yf}, {mf}, {df_d})")
-
-    cuerpo_festivos = ",\n".join(lineas_festivos)
-
-    return (
-        "// zql_bi_catalogo_fechas.pq -> catalogo de fechas generado desde catalogos.py\n"
-        "let\n"
-        f"    FechaInicio = #date({y_ini}, {m_ini}, {d_ini}),\n"
-        f"    FechaFin = #date({y_fin}, {m_fin}, {d_fin}),\n"
-        "    Dias = Duration.Days(FechaFin - FechaInicio) + 1,\n"
-        "    ListaFechas = List.Dates(FechaInicio, Dias, #duration(1, 0, 0, 0)),\n"
-        '    TablaFechas = Table.FromList(ListaFechas, Splitter.SplitByNothing(), {"Fecha"}),\n'
-        '    #"Tipo cambiado" = Table.TransformColumnTypes(TablaFechas, {{"Fecha", type date}}),\n'
-        '    #"dia corto" = Table.AddColumn(#"Tipo cambiado", "Nombre del día", each Date.ToText([Fecha], "ddd"), type text),\n'
-        '    Semana = Table.AddColumn(#"dia corto", "Semana", each Date.WeekOfYear([Fecha], Day.Monday), Int64.Type),\n'
-        "    EtiquetaSemana = Table.AddColumn(\n"
-        '        Semana, "Etiqueta Semana", each "Sem " & Text.PadStart(Text.From([Semana]), 2, "0"), type text\n'
-        "    ),\n"
-        '    #"Nombre del mes insertado" = Table.AddColumn(\n'
-        '        EtiquetaSemana, "Nombre del mes", each Text.Proper(Date.MonthName([Fecha])), type text\n'
-        "    ),\n"
-        '    #"Año insertado" = Table.AddColumn(#"Nombre del mes insertado", "Año", each Date.Year([Fecha]), Int64.Type),\n'
-        '    #"Columna combinada insertada" = Table.AddColumn(\n'
-        '        #"Año insertado", "mes_año", each [Nombre del mes] & "_" & Text.From([Año]), type text\n'
-        "    ),\n"
-        '    #"Nombre del día insertado" = Table.AddColumn(\n'
-        '        #"Columna combinada insertada", "Nombre del día completo", each Date.DayOfWeekName([Fecha]), type text\n'
-        "    ),\n"
-        '    #"Día de la semana insertado" = Table.AddColumn(\n'
-        '        #"Nombre del día insertado", "Día de la semana", each Date.DayOfWeek([Fecha], Day.Monday) + 1, Int64.Type\n'
-        "    ),\n"
-        "    Festivos = {\n"
-        f"{cuerpo_festivos}\n"
-        "    },\n"
-        "    ConDescanso = Table.AddColumn(\n"
-        '        #"Día de la semana insertado",\n'
-        '        "EsDescanso",\n'
-        "        each if Date.DayOfWeek([Fecha], Day.Sunday) = 0 then 1 else 0,\n"
-        "        Int64.Type\n"
-        "    ),\n"
-        "    ConFestivo = Table.AddColumn(\n"
-        '        ConDescanso, "EsFestivo", each if List.Contains(Festivos, [Fecha]) then 1 else 0, Int64.Type\n'
-        "    ),\n"
-        "    ConDiaHabil = Table.AddColumn(\n"
-        '        ConFestivo, "EsDiaHabil", each if [EsDescanso] = 0 and [EsFestivo] = 0 then 1 else 0, Int64.Type\n'
-        "    )\n"
-        "in\n"
-        "    ConDiaHabil\n"
-    )
-
-
-def actualizar_todos_catalogos_pq(directorio_base: str = None) -> dict:
-    """
-    Actualiza todos los catálogos Power Query a partir de catalogos.py.
-    Ejecuta generar_m_materiales(), generar_m_centros() y generar_m_fechas(),
-    escribiendo los archivos en directorio_base.
-    Si no se especifica directorio_base, se toma la carpeta actual donde reside este archivo.
-    """
-    if directorio_base is None:
-        directorio_base = os.path.dirname(os.path.abspath(__file__))
-
-    catalogos_a_generar = {
-        "materiales": ("zql_bi_catalogo_materiales.pq", generar_m_materiales()),
-        "centros": ("zql_bi_catalogo_centros.pq", generar_m_centros()),
-        "fechas": ("zql_bi_catalogo_fechas.pq", generar_m_fechas()),
-    }
-
-    rutas_generadas = {}
-    for clave, (nombre_archivo, codigo_m) in catalogos_a_generar.items():
-        ruta = os.path.join(directorio_base, nombre_archivo)
-        with open(ruta, "w", encoding="utf-8") as f:
-            f.write(codigo_m)
-        rutas_generadas[clave] = ruta
-
-    return rutas_generadas
-
-
-if __name__ == "__main__":
-    print("Sincronizando catalogos Power Query desde catalogos.py...")
-    res = actualizar_todos_catalogos_pq()
-    print(f"[OK] Materiales actualizados: {res['materiales']}")
-    print(f"[OK] Centros actualizados:    {res['centros']}")
-    print(f"[OK] Fechas actualizadas:     {res['fechas']}")

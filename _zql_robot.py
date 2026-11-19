@@ -149,38 +149,45 @@ def obtener_ruta_base_drive() -> str:
 
 
 # ==============================================================================
-# SINCRONIZACIÓN DE CATÁLOGOS POWER QUERY (MANDANTE: catalogos.py)
+# SINCRONIZACIÓN DE PARQUETS ESTÁTICOS DE CATÁLOGOS (MANDANTE: catalogos.py)
 # ==============================================================================
 
-def actualizar_catalogos_powerquery(directorio_base: str = None) -> bool:
+def actualizar_catalogos_parquet(directorio_parquet: str = None) -> bool:
     """
-    Actualiza todos los catálogos Power Query (materiales y centros) desde catalogos.py.
+    Genera y actualiza todos los Parquets estáticos de catálogos
+    (centros, materiales, fechas y líneas de transporte) desde catalogos.py.
     """
     try:
-        from catalogos import actualizar_todos_catalogos_pq
-        res = actualizar_todos_catalogos_pq(directorio_base)
-        for clave, ruta in res.items():
-            print(f"[OK] Catalogo de {clave} PQ sincronizado con exito: {ruta}")
-        return True
+        from parquets import actualizar_todos_catalogos_parquet
+        res = actualizar_todos_catalogos_parquet(directorio_parquet=directorio_parquet)
+        for clave, info in res.get("detalles", {}).items():
+            estado = "OK" if info.get("estatus") else "ERROR"
+            print(f"[{estado}] Catalogo {clave} Parquet: {info.get('archivo_parquet')} ({info.get('msg')})")
+        return bool(res.get("estatus", False))
     except Exception as e:
-        print(f"[ERROR] Al sincronizar catalogos PQ: {e}")
+        print(f"[ERROR] Al sincronizar catalogos Parquet: {e}")
         return False
+
+
+def actualizar_catalogos_powerquery(directorio_base: str = None) -> bool:
+    """Alias para mantener compatibilidad (ahora genera Parquets estáticos)."""
+    return actualizar_catalogos_parquet(directorio_parquet=directorio_base)
 
 
 def actualizar_catalogo_materiales(directorio_base: str = None) -> bool:
     """Alias para mantener compatibilidad."""
-    return actualizar_catalogos_powerquery(directorio_base)
+    return actualizar_catalogos_parquet(directorio_parquet=directorio_base)
 
 
 def actualizar_catalogo_centros(directorio_base: str = None) -> bool:
     """Alias para mantener compatibilidad."""
-    return actualizar_catalogos_powerquery(directorio_base)
+    return actualizar_catalogos_parquet(directorio_parquet=directorio_base)
 
 
-def rutina_diaria(dias_atras: int = 4, ruta_base_drive: str = None):
+def rutina_diaria(dias_atras: int = 5, ruta_base_drive: str = None):
     """
     Actividad rutinaria diaria:
-    Descarga los reportes de SAP actualizando únicamente los últimos 'dias_atras' días (por defecto 3).
+    Descarga los reportes de SAP actualizando únicamente los últimos 'dias_atras' días (por defecto 5).
     """
     if ruta_base_drive is None:
         ruta_base_drive = obtener_ruta_base_drive()
@@ -201,12 +208,12 @@ def rutina_diaria(dias_atras: int = 4, ruta_base_drive: str = None):
     print(f" Meses a procesar (VT16 / FBL4N): {[m if m else f'{hoy.month} (en curso)' for m in meses_a_procesar]}")
     print("=" * 70)
 
-    # 0. Sincronización de catálogos Power Query (Materiales y Centros)
-    print("\n▶ [0/5] Sincronizando catalogos Power Query desde catalogos.py...")
+    # 0. Sincronización de Parquets estáticos de catálogos (Centros, Materiales, Fechas y Líneas de Transporte)
+    print("\n▶ [0/5] Sincronizando Parquets estáticos de catálogos desde catalogos.py...")
     try:
-        actualizar_catalogos_powerquery()
+        actualizar_catalogos_parquet()
     except Exception as e_cat:
-        print(f"[AVISO] Error actualizando catalogos Power Query: {e_cat}")
+        print(f"[AVISO] Error actualizando Parquets de catálogos: {e_cat}")
 
     # 1. ZSDMX389 (pendientes y en proceso)
     print("\n▶ [1/5] Ejecutando: zsdmx389_robot (tipo_descarga='ambos')...")
@@ -255,8 +262,17 @@ def rutina_diaria(dias_atras: int = 4, ruta_base_drive: str = None):
         except Exception as e_fbl4n:
             print(f"  [ERROR] En fbl4n_robot ({etiqueta_mes}): {e_fbl4n}")
 
-    # 5.1. FBL4N (Analizar adicionales del mes en curso y enviar correo)
-    print(f"\n▶ [5.1] Analizando adicionales FBL4N del mes en curso y preparando correo...")
+    # 6. Actualización de Parquets operativos (vt16 -> 389 -> 249 -> 267 -> fbl4n)
+    print(f"\n▶ [6/6] Actualizando Parquets operativos (vt16, 389, 249, 267 y fbl4n)...")
+    try:
+        from parquets import actualizar_parquets_operativos
+        res_pq = actualizar_parquets_operativos(ruta_base_drive=ruta_base_drive)
+        print(f"Resultado actualizar_parquets_operativos:\n{json.dumps(res_pq, indent=4, ensure_ascii=False)}")
+    except Exception as e_pq:
+        print(f"[ERROR] En actualizar_parquets_operativos: {e_pq}")
+
+    # 6.1. FBL4N (Analizar adicionales del mes en curso y enviar correo)
+    print(f"\n▶ [6.1] Analizando adicionales FBL4N del mes en curso y preparando correo...")
     try:
         res_analisis = analizar_fbl4n(mes_en_curso="", ruta_parquet=None)
         print(f"Resultado analizar_fbl4n:\n{json.dumps(res_analisis, indent=4, ensure_ascii=False)}")
